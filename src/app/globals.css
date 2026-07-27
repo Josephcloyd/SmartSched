@@ -13,6 +13,19 @@
   --danger: #b42318;
 }
 
+.dark {
+  --background: #07110b;
+  --foreground: #f4f7f2;
+  --muted: #94a39a;
+  --surface: #111d16;
+  --surface-2: #16241d;
+  --border: #2a3c31;
+  --primary: #41b37a;
+  --primary-strong: #61d093;
+  --accent: #ff9b65;
+  --danger: #ff7b72;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -32,6 +45,15 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
 }
 
 * {
@@ -62,7 +84,7 @@ select:focus-visible {
   width: 100%;
   border-radius: 6px;
   border: 1px solid var(--border);
-  background: #ffffff;
+  background: var(--surface);
   padding: 0 12px;
   color: var(--foreground);
   box-shadow: 0 1px 2px rgb(20 30 24 / 0.04);
@@ -93,7 +115,7 @@ select:focus-visible {
 .tool-button,
 .secondary-button {
   border: 1px solid var(--border);
-  background: #ffffff;
+  background: var(--surface);
   color: var(--foreground);
 }
 
