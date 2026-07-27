@@ -6,8 +6,10 @@ import {
   CalendarClock,
   FileDown,
   ImageDown,
+  MoonStar,
   Plus,
   Save,
+  Sun,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -31,6 +33,7 @@ import {
 
 const storageKey = "smartsched.local.schedule.v1";
 const notifiedKey = "smartsched.local.notified.v1";
+const themeKey = "smartsched.local.theme.v1";
 
 const defaultSettings: ScheduleSettings = {
   ownerName: "My Schedule",
@@ -179,11 +182,31 @@ export function ScheduleApp() {
   const [message, setMessage] = useState("");
   const [notificationState, setNotificationState] =
     useState<NotificationPermission | "unsupported">(getNotificationPermission);
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") {
+      return "light";
+    }
+
+    const storedTheme = window.localStorage.getItem(themeKey);
+    if (storedTheme === "dark" || storedTheme === "light") {
+      return storedTheme;
+    }
+
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify({ settings, entries }));
   }, [settings, entries]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    document.documentElement.style.colorScheme = theme;
+    window.localStorage.setItem(themeKey, theme);
+  }, [theme]);
 
   useEffect(() => {
     if (notificationState !== "granted") {
@@ -367,23 +390,35 @@ export function ScheduleApp() {
   }
 
   return (
-    <main className="min-h-screen bg-background">
-      <section className="border-b border-border bg-surface">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-5 py-6 lg:flex-row lg:items-end lg:justify-between lg:px-8">
+    <main className="min-h-screen bg-background text-foreground transition-colors duration-200">
+      <section className="border-b border-border/80 bg-gradient-to-br from-surface via-surface to-surface-2/80">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-5 py-8 lg:flex-row lg:items-end lg:justify-between lg:px-8">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-sm font-semibold uppercase tracking-[0.18em] text-primary">
+              <span className="h-2 w-2 rounded-full bg-primary" />
               SmartSched Local
-            </p>
-            <h1 className="mt-2 text-3xl font-semibold text-foreground sm:text-4xl">
+            </div>
+            <h1 className="mt-4 text-3xl font-semibold text-foreground sm:text-4xl">
               Schedule, wallpaper, and reminders on this device.
             </h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-muted">
               No Supabase and no online account. Your data is saved in this
               browser, then exported as a phone wallpaper, calendar alarms, or a
               backup file.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              className="tool-button"
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            >
+              {theme === "dark" ? (
+                <Sun aria-hidden="true" className="size-4" />
+              ) : (
+                <MoonStar aria-hidden="true" className="size-4" />
+              )}
+              {theme === "dark" ? "Light" : "Dark"}
+            </button>
             <button className="tool-button" onClick={downloadWallpaper}>
               <ImageDown aria-hidden="true" className="size-4" />
               Wallpaper
@@ -468,8 +503,8 @@ export function ScheduleApp() {
                         type="button"
                         className={
                           selected
-                            ? "min-h-11 rounded-md bg-primary px-2 text-sm font-semibold text-white"
-                            : "min-h-11 rounded-md border border-border bg-white px-2 text-sm font-semibold text-muted"
+                            ? "min-h-11 rounded-xl bg-primary px-2 text-sm font-semibold text-white shadow-sm"
+                            : "min-h-11 rounded-xl border border-border bg-surface px-2 text-sm font-semibold text-muted"
                         }
                         aria-pressed={selected}
                         onClick={() => toggleFormDay(day)}
@@ -561,7 +596,7 @@ export function ScheduleApp() {
 
         <div className="space-y-5">
           {message ? (
-            <div className="rounded-lg border border-border bg-surface px-4 py-3 text-sm text-foreground shadow-sm">
+            <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-foreground shadow-sm">
               {message}
             </div>
           ) : null}
@@ -588,8 +623,8 @@ export function ScheduleApp() {
                   key={day}
                   className={
                     selectedDay === day
-                      ? "min-h-10 rounded-md bg-primary px-4 text-sm font-semibold text-white"
-                      : "min-h-10 rounded-md border border-border bg-white px-4 text-sm font-semibold text-muted"
+                      ? "min-h-10 rounded-full bg-primary px-4 text-sm font-semibold text-white shadow-sm"
+                      : "min-h-10 rounded-full border border-border bg-surface px-4 text-sm font-semibold text-muted"
                   }
                   onClick={() => {
                     setSelectedDay(day);
@@ -614,7 +649,7 @@ export function ScheduleApp() {
                   />
                 ))
               ) : (
-                <div className="rounded-lg border border-dashed border-border bg-background p-6 text-center text-sm text-muted">
+                <div className="rounded-2xl border border-dashed border-border bg-surface-2/70 p-6 text-center text-sm text-muted">
                   No schedule items for {selectedDay}.
                 </div>
               )}
@@ -625,14 +660,14 @@ export function ScheduleApp() {
             {days.map((day) => (
               <div
                 key={day}
-                className="rounded-lg border border-border bg-surface p-4 shadow-sm"
+                className="rounded-2xl border border-border bg-surface/90 p-4 shadow-sm"
               >
                 <h3 className="text-sm font-semibold text-foreground">{day}</h3>
                 <div className="mt-3 space-y-3">
                   {entriesForDay(entries, day).map((entry) => (
                     <button
                       key={entry.id}
-                      className="w-full rounded-md border-l-4 bg-background p-3 text-left"
+                      className="w-full rounded-xl border-l-4 bg-surface-2/70 p-3 text-left transition hover:-translate-y-0.5"
                       style={{ borderLeftColor: typeStyle[entry.type] }}
                       onClick={() => editEntry(entry)}
                     >
@@ -665,8 +700,11 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-border bg-surface p-5 shadow-sm">
-      <h2 className="mb-4 text-lg font-semibold text-foreground">{title}</h2>
+    <section className="rounded-2xl border border-border bg-surface/90 p-5 shadow-[0_20px_45px_-28px_rgba(0,0,0,0.35)] backdrop-blur">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+        <div className="h-2 w-16 rounded-full bg-gradient-to-r from-primary to-accent" />
+      </div>
       {children}
     </section>
   );
@@ -715,7 +753,7 @@ function TextInput({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+    <div className="rounded-2xl border border-border bg-gradient-to-br from-surface to-surface-2 p-4 shadow-sm">
       <p className="text-sm font-medium text-muted">{label}</p>
       <p className="mt-2 text-2xl font-semibold text-foreground">{value}</p>
     </div>
@@ -732,7 +770,7 @@ function ScheduleRow({
   onDelete: () => void;
 }) {
   return (
-    <article className="grid gap-3 rounded-lg border border-border bg-background p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+    <article className="grid gap-3 rounded-2xl border border-border bg-surface-2/70 p-4 shadow-sm sm:grid-cols-[1fr_auto] sm:items-center">
       <button className="text-left" onClick={onEdit}>
         <div className="flex flex-wrap items-center gap-2">
           <span
@@ -756,7 +794,7 @@ function ScheduleRow({
       </button>
       <button
         aria-label={`Delete ${entry.title}`}
-        className="flex min-h-10 items-center justify-center gap-2 rounded-md border border-border bg-white px-3 text-sm font-semibold text-danger"
+        className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-3 text-sm font-semibold text-danger"
         onClick={onDelete}
       >
         <Trash2 aria-hidden="true" className="size-4" />
