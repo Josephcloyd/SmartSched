@@ -19,13 +19,15 @@ export function formatTime(value: string) {
 
 export function sortEntries(entries: ScheduleEntry[]) {
   return [...entries].sort((a, b) => {
-    const dayDiff = days.indexOf(a.day) - days.indexOf(b.day);
+    const firstDayA = a.days[0] ?? "Monday";
+    const firstDayB = b.days[0] ?? "Monday";
+    const dayDiff = days.indexOf(firstDayA) - days.indexOf(firstDayB);
     return dayDiff || timeToMinutes(a.start) - timeToMinutes(b.start);
   });
 }
 
 export function entriesForDay(entries: ScheduleEntry[], day: DayName) {
-  return sortEntries(entries).filter((entry) => entry.day === day);
+  return sortEntries(entries).filter((entry) => entry.days.includes(day));
 }
 
 export function hasTimeConflict(
@@ -36,7 +38,9 @@ export function hasTimeConflict(
   const end = timeToMinutes(candidate.end);
 
   return entries.some((entry) => {
-    if (entry.id === candidate.id || entry.day !== candidate.day) {
+    const sharesDay = candidate.days.some((day) => entry.days.includes(day));
+
+    if (entry.id === candidate.id || !sharesDay) {
       return false;
     }
 

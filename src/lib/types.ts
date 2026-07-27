@@ -16,15 +16,12 @@ export type ScheduleEntry = {
   id: string;
   title: string;
   code: string;
-  teacher: string;
   room: string;
-  section: string;
-  day: DayName;
+  days: DayName[];
   start: string;
   end: string;
   type: ScheduleType;
   reminderMinutes: number;
-  notes: string;
 };
 
 export type ScheduleSettings = {

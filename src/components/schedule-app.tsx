@@ -41,15 +41,12 @@ const defaultSettings: ScheduleSettings = {
 const blankEntry: Omit<ScheduleEntry, "id"> = {
   title: "",
   code: "",
-  teacher: "",
   room: "",
-  section: "",
-  day: "Monday",
+  days: ["Monday"],
   start: "08:00",
   end: "09:00",
   type: "Class",
   reminderMinutes: 15,
-  notes: "",
 };
 
 const sampleEntries: ScheduleEntry[] = [
@@ -57,43 +54,34 @@ const sampleEntries: ScheduleEntry[] = [
     id: uid(),
     title: "Mathematics",
     code: "MATH 101",
-    teacher: "Ms. Reyes",
     room: "Room 204",
-    section: "Grade 10 - A",
-    day: "Monday",
+    days: ["Monday", "Wednesday", "Friday"],
     start: "08:00",
     end: "09:00",
     type: "Class",
     reminderMinutes: 15,
-    notes: "Bring graphing notebook.",
   },
   {
     id: uid(),
     title: "Science Lab",
     code: "SCI 102",
-    teacher: "Mr. Santos",
     room: "Lab 2",
-    section: "Grade 10 - A",
-    day: "Wednesday",
+    days: ["Wednesday"],
     start: "10:00",
     end: "11:30",
     type: "Laboratory",
     reminderMinutes: 30,
-    notes: "Lab coat required.",
   },
   {
     id: uid(),
     title: "English Quiz",
     code: "ENG 101",
-    teacher: "Ms. Cruz",
     room: "Room 101",
-    section: "Grade 10 - A",
-    day: "Friday",
+    days: ["Friday"],
     start: "13:00",
     end: "14:00",
     type: "Quiz",
     reminderMinutes: 60,
-    notes: "Review chapters 4 and 5.",
   },
 ];
 
@@ -106,9 +94,27 @@ const typeStyle: Record<ScheduleType, string> = {
   Event: "#3f5f9e",
 };
 
+const wallpaperTypeStyle: Record<ScheduleType, string> = {
+  Class: "#cbd5e1",
+  Laboratory: "#94a3b8",
+  Quiz: "#d1d5db",
+  Exam: "#e5e7eb",
+  Assignment: "#a3a3a3",
+  Event: "#b6beca",
+};
+
 type StoredSchedule = {
   settings: ScheduleSettings;
   entries: ScheduleEntry[];
+};
+
+type LegacyScheduleEntry = Omit<ScheduleEntry, "days"> & {
+  day?: DayName;
+};
+
+type RawStoredSchedule = {
+  settings?: Partial<ScheduleSettings>;
+  entries?: Array<ScheduleEntry | LegacyScheduleEntry>;
 };
 
 function readStoredSchedule(): StoredSchedule | null {
@@ -122,14 +128,33 @@ function readStoredSchedule(): StoredSchedule | null {
       return null;
     }
 
-    const parsed = JSON.parse(raw) as StoredSchedule;
+    const parsed = JSON.parse(raw) as RawStoredSchedule;
     return {
       settings: { ...defaultSettings, ...parsed.settings },
-      entries: Array.isArray(parsed.entries) ? parsed.entries : sampleEntries,
+      entries: Array.isArray(parsed.entries)
+        ? parsed.entries.map(normalizeEntry)
+        : sampleEntries,
     };
   } catch {
     return null;
   }
+}
+
+function normalizeEntry(entry: ScheduleEntry | LegacyScheduleEntry): ScheduleEntry {
+  const legacyDay = "day" in entry ? entry.day : undefined;
+  const entryDays = "days" in entry && Array.isArray(entry.days)
+    ? entry.days
+    : legacyDay
+      ? [legacyDay]
+      : ["Monday"];
+  const validDays = entryDays.filter((day): day is DayName =>
+    (days as readonly string[]).includes(day),
+  );
+
+  return {
+    ...entry,
+    days: validDays.length > 0 ? validDays : ["Monday"],
+  };
 }
 
 function getNotificationPermission(): NotificationPermission | "unsupported" {
@@ -193,7 +218,21 @@ export function ScheduleApp() {
 
   function resetForm(day: DayName = selectedDay) {
     setEditingId(null);
-    setForm({ ...blankEntry, day });
+    setForm({ ...blankEntry, days: [day] });
+  }
+
+  function toggleFormDay(day: DayName) {
+    setForm((current) => {
+      const exists = current.days.includes(day);
+      const nextDays = exists
+        ? current.days.filter((item) => item !== day)
+        : [...current.days, day];
+
+      return {
+        ...current,
+        days: nextDays.length > 0 ? nextDays : [day],
+      };
+    });
   }
 
   function saveEntry() {
@@ -207,15 +246,17 @@ export function ScheduleApp() {
       return;
     }
 
+    if (form.days.length === 0) {
+      setMessage("Select at least one day.");
+      return;
+    }
+
     const saved: ScheduleEntry = {
       id: editingId ?? uid(),
       ...form,
       title: form.title.trim(),
       code: form.code.trim(),
-      teacher: form.teacher.trim(),
       room: form.room.trim(),
-      section: form.section.trim(),
-      notes: form.notes.trim(),
     };
 
     setEntries((current) =>
@@ -223,16 +264,20 @@ export function ScheduleApp() {
         ? current.map((entry) => (entry.id === editingId ? saved : entry))
         : [...current, saved],
     );
-    setSelectedDay(saved.day);
-    resetForm(saved.day);
-    setMessage(conflict ? "Saved with a time conflict warning." : "Schedule saved on this device.");
+    setSelectedDay(saved.days[0] ?? selectedDay);
+    resetForm(saved.days[0] ?? selectedDay);
+    setMessage(
+      conflict
+        ? "Saved with a time conflict warning."
+        : "Schedule saved on the selected days.",
+    );
   }
 
   function editEntry(entry: ScheduleEntry) {
     const { id, ...rest } = entry;
     setEditingId(id);
     setForm(rest);
-    setSelectedDay(entry.day);
+    setSelectedDay(entry.days[0] ?? selectedDay);
     setMessage("");
   }
 
@@ -277,12 +322,12 @@ export function ScheduleApp() {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const parsed = JSON.parse(String(reader.result)) as StoredSchedule;
+        const parsed = JSON.parse(String(reader.result)) as RawStoredSchedule;
         if (!Array.isArray(parsed.entries)) {
           throw new Error("Missing entries");
         }
         setSettings({ ...defaultSettings, ...parsed.settings });
-        setEntries(parsed.entries);
+        setEntries(parsed.entries.map(normalizeEntry));
         setMessage("Backup imported and saved on this device.");
       } catch {
         setMessage("That backup file is not valid SmartSched data.");
@@ -412,29 +457,29 @@ export function ScheduleApp() {
                   </select>
                 </Field>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Day">
-                  <select
-                    className="field"
-                    value={form.day}
-                    onChange={(event) =>
-                      updateForm("day", event.target.value as DayName)
-                    }
-                  >
-                    {days.map((day) => (
-                      <option key={day}>{day}</option>
-                    ))}
-                  </select>
-                </Field>
-                <TextInput
-                  label="Reminder"
-                  type="number"
-                  value={String(form.reminderMinutes)}
-                  onChange={(value) =>
-                    updateForm("reminderMinutes", Math.max(0, Number(value)))
-                  }
-                />
-              </div>
+              <Field label="Days">
+                <div className="grid grid-cols-5 gap-2">
+                  {days.map((day) => {
+                    const selected = form.days.includes(day);
+
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        className={
+                          selected
+                            ? "min-h-11 rounded-md bg-primary px-2 text-sm font-semibold text-white"
+                            : "min-h-11 rounded-md border border-border bg-white px-2 text-sm font-semibold text-muted"
+                        }
+                        aria-pressed={selected}
+                        onClick={() => toggleFormDay(day)}
+                      >
+                        {day.slice(0, 3)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
               <div className="grid grid-cols-2 gap-3">
                 <TextInput
                   label="Start"
@@ -449,12 +494,6 @@ export function ScheduleApp() {
                   onChange={(value) => updateForm("end", value)}
                 />
               </div>
-              <TextInput
-                label="Teacher"
-                value={form.teacher}
-                onChange={(value) => updateForm("teacher", value)}
-                placeholder="Ms. Reyes"
-              />
               <div className="grid grid-cols-2 gap-3">
                 <TextInput
                   label="Room"
@@ -463,23 +502,19 @@ export function ScheduleApp() {
                   placeholder="Room 204"
                 />
                 <TextInput
-                  label="Section"
-                  value={form.section}
-                  onChange={(value) => updateForm("section", value)}
-                  placeholder="Grade 10 - A"
+                  label="Reminder"
+                  type="number"
+                  value={String(form.reminderMinutes)}
+                  onChange={(value) =>
+                    updateForm("reminderMinutes", Math.max(0, Number(value)))
+                  }
                 />
               </div>
-              <TextInput
-                label="Notes"
-                value={form.notes}
-                onChange={(value) => updateForm("notes", value)}
-                placeholder="Bring notebook"
-              />
 
               {conflict ? (
                 <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900">
-                  Time conflict on {form.day}. You can still save it, but the
-                  wallpaper and calendar will show both items.
+                  Time conflict on one of the selected days. You can still save
+                  it, but the wallpaper and calendar will show both items.
                 </p>
               ) : null}
 
@@ -558,7 +593,9 @@ export function ScheduleApp() {
                   }
                   onClick={() => {
                     setSelectedDay(day);
-                    updateForm("day", day);
+                    if (form.days.length === 1) {
+                      updateForm("days", [day]);
+                    }
                   }}
                 >
                   {day.slice(0, 3)}
@@ -606,7 +643,7 @@ export function ScheduleApp() {
                         {entry.title}
                       </p>
                       <p className="mt-1 text-xs text-muted">
-                        {[entry.room, entry.teacher].filter(Boolean).join(" - ")}
+                        {[entry.code, entry.room].filter(Boolean).join(" - ")}
                       </p>
                     </button>
                   ))}
@@ -712,13 +749,10 @@ function ScheduleRow({
           {entry.title}
         </h3>
         <p className="mt-1 text-sm leading-6 text-muted">
-          {[entry.code, entry.teacher, entry.room, entry.section]
+          {[entry.days.map((day) => day.slice(0, 3)).join("/"), entry.code, entry.room]
             .filter(Boolean)
             .join(" - ")}
         </p>
-        {entry.notes ? (
-          <p className="mt-2 text-sm leading-6 text-muted">{entry.notes}</p>
-        ) : null}
       </button>
       <button
         aria-label={`Delete ${entry.title}`}
@@ -748,7 +782,7 @@ function checkDueNotifications(entries: ScheduleEntry[]) {
   );
 
   entries
-    .filter((entry) => entry.day === today)
+    .filter((entry) => entry.days.includes(today))
     .forEach((entry) => {
       const [hour, minute] = entry.start.split(":").map(Number);
       const reminder = new Date(now);
@@ -758,7 +792,7 @@ function checkDueNotifications(entries: ScheduleEntry[]) {
 
       if (diff <= 30000 && diff >= -60000 && !notified.has(key)) {
         new Notification(`${entry.title} starts at ${formatTime(entry.start)}`, {
-          body: [entry.room, entry.teacher].filter(Boolean).join(" - "),
+          body: [entry.code, entry.room].filter(Boolean).join(" - "),
           icon: "/icon.svg",
         });
         notified.add(key);
@@ -780,30 +814,32 @@ function buildIcs(settings: ScheduleSettings, entries: ScheduleEntry[]) {
   ];
 
   entries.forEach((entry) => {
-    const startDate = nextDateForDay(entry.day);
-    const [startHour, startMinute] = entry.start.split(":").map(Number);
-    const [endHour, endMinute] = entry.end.split(":").map(Number);
-    startDate.setHours(startHour, startMinute, 0, 0);
-    const endDate = new Date(startDate);
-    endDate.setHours(endHour, endMinute, 0, 0);
+    entry.days.forEach((day) => {
+      const startDate = nextDateForDay(day);
+      const [startHour, startMinute] = entry.start.split(":").map(Number);
+      const [endHour, endMinute] = entry.end.split(":").map(Number);
+      startDate.setHours(startHour, startMinute, 0, 0);
+      const endDate = new Date(startDate);
+      endDate.setHours(endHour, endMinute, 0, 0);
 
-    lines.push(
-      "BEGIN:VEVENT",
-      `UID:${entry.id}@smartsched.local`,
-      `DTSTAMP:${nowStamp}`,
-      `DTSTART:${toIcsDate(startDate)}`,
-      `DTEND:${toIcsDate(endDate)}`,
-      "RRULE:FREQ=WEEKLY;COUNT=24",
-      `SUMMARY:${escapeIcs([entry.code, entry.title].filter(Boolean).join(" "))}`,
-      `LOCATION:${escapeIcs(entry.room)}`,
-      `DESCRIPTION:${escapeIcs([entry.teacher, entry.section, entry.notes].filter(Boolean).join("\\n"))}`,
-      "BEGIN:VALARM",
-      `TRIGGER:-PT${Math.max(0, entry.reminderMinutes)}M`,
-      "ACTION:DISPLAY",
-      `DESCRIPTION:${escapeIcs(`${entry.title} starts soon`)}`,
-      "END:VALARM",
-      "END:VEVENT",
-    );
+      lines.push(
+        "BEGIN:VEVENT",
+        `UID:${entry.id}-${day}@smartsched.local`,
+        `DTSTAMP:${nowStamp}`,
+        `DTSTART:${toIcsDate(startDate)}`,
+        `DTEND:${toIcsDate(endDate)}`,
+        "RRULE:FREQ=WEEKLY;COUNT=24",
+        `SUMMARY:${escapeIcs([entry.code, entry.title].filter(Boolean).join(" "))}`,
+        `LOCATION:${escapeIcs(entry.room)}`,
+        `DESCRIPTION:${escapeIcs(day)}`,
+        "BEGIN:VALARM",
+        `TRIGGER:-PT${Math.max(0, entry.reminderMinutes)}M`,
+        "ACTION:DISPLAY",
+        `DESCRIPTION:${escapeIcs(`${entry.title} starts soon`)}`,
+        "END:VALARM",
+        "END:VEVENT",
+      );
+    });
   });
 
   lines.push("END:VCALENDAR");
@@ -845,63 +881,215 @@ function drawWallpaper(
   settings: ScheduleSettings,
   entries: ScheduleEntry[],
 ) {
-  ctx.fillStyle = "#f7f8f5";
+  const silver = "#d9dde4";
+  const muted = "#8f98a6";
+  const soft = "#f1f3f6";
+  const panel = "#2d3037";
+  const panelAlt = "#343840";
+  const line = "#555c68";
+
+  const pageGradient = ctx.createLinearGradient(0, 0, width, height);
+  pageGradient.addColorStop(0, "#111318");
+  pageGradient.addColorStop(0.52, "#22252b");
+  pageGradient.addColorStop(1, "#0d0f13");
+  ctx.fillStyle = pageGradient;
   ctx.fillRect(0, 0, width, height);
-  ctx.fillStyle = "#256f53";
-  ctx.fillRect(0, 0, width, 310);
 
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "700 72px Arial";
-  ctx.fillText(settings.wallpaperTitle || "Weekly Class Schedule", 90, 125);
+  const headerGradient = ctx.createLinearGradient(0, 0, width, 360);
+  headerGradient.addColorStop(0, "#30333a");
+  headerGradient.addColorStop(0.55, "#24272d");
+  headerGradient.addColorStop(1, "#191b20");
+  ctx.fillStyle = headerGradient;
+  ctx.fillRect(0, 0, width, 360);
+
+  ctx.fillStyle = "#9ca3af";
+  ctx.fillRect(0, 342, width, 10);
+  ctx.fillStyle = "#4b5563";
+  ctx.fillRect(0, 352, width, 8);
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+  for (let x = 0; x < width; x += 64) {
+    ctx.fillRect(x, 0, 1, height);
+  }
+  for (let y = 0; y < height; y += 64) {
+    ctx.fillRect(0, y, width, 1);
+  }
+
+  const title = settings.wallpaperTitle || "Weekly Class Schedule";
+  ctx.fillStyle = soft;
+  ctx.font = "700 70px Arial";
+  drawFittedText(ctx, title, 76, 104, width - 152, 70, 44);
   ctx.font = "400 38px Arial";
-  ctx.fillText(settings.ownerName || "My Schedule", 92, 190);
-  ctx.fillStyle = "#d9f2e5";
+  drawFittedText(ctx, settings.ownerName || "My Schedule", 80, 178, 760, 38, 26);
+  ctx.fillStyle = muted;
   ctx.font = "400 30px Arial";
-  ctx.fillText(settings.schoolName || "SmartSched Local", 92, 240);
+  drawFittedText(ctx, settings.schoolName || "SmartSched Local", 80, 232, 850, 30, 22);
 
-  const left = 70;
-  const top = 380;
-  const dayWidth = (width - left * 2 - 32) / 5;
-  const cardHeight = height - top - 100;
+  roundedRect(ctx, width - 430, 188, 300, 62, 31, "rgba(255, 255, 255, 0.08)");
+  ctx.fillStyle = silver;
+  ctx.font = "700 24px Arial";
+  ctx.fillText("1440 x 2560", width - 390, 227);
+  ctx.fillStyle = muted;
+  ctx.font = "400 20px Arial";
+  ctx.fillText("PHONE WALLPAPER", width - 245, 227);
+
+  const left = 58;
+  const top = 404;
+  const tableWidth = width - left * 2;
+  const bottom = height - 86;
+  const tableHeight = bottom - top;
+  const rowGap = 16;
+  const rowHeight = (tableHeight - rowGap * (days.length - 1)) / days.length;
+
+  ctx.shadowColor = "rgba(0, 0, 0, 0.38)";
+  ctx.shadowBlur = 38;
+  ctx.shadowOffsetY = 18;
+  roundedRect(ctx, left - 14, top - 18, tableWidth + 28, tableHeight + 36, 36, "#111318");
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
 
   days.forEach((day, index) => {
-    const x = left + index * (dayWidth + 8);
-    roundedRect(ctx, x, top, dayWidth, cardHeight, 28, "#ffffff");
-    ctx.fillStyle = "#172018";
-    ctx.font = "700 34px Arial";
-    ctx.fillText(day.slice(0, 3), x + 26, top + 62);
+    const y = top + index * (rowHeight + rowGap);
+    const dayEntries = entriesForDay(entries, day);
+    const rowColor = index % 2 === 0 ? panel : panelAlt;
+    roundedRect(ctx, left, y, tableWidth, rowHeight, 28, rowColor);
 
-    let y = top + 108;
-    entriesForDay(entries, day).forEach((entry) => {
-      const itemHeight = 168;
-      if (y + itemHeight > top + cardHeight - 24) {
-        return;
-      }
+    ctx.fillStyle = line;
+    ctx.fillRect(left + 166, y + 26, 2, rowHeight - 52);
 
-      roundedRect(ctx, x + 18, y, dayWidth - 36, itemHeight, 18, "#eef4ef");
-      ctx.fillStyle = typeStyle[entry.type];
-      ctx.fillRect(x + 18, y, 8, itemHeight);
-      ctx.fillStyle = "#526058";
-      ctx.font = "700 22px Arial";
-      ctx.fillText(
-        `${formatTime(entry.start)} - ${formatTime(entry.end)}`,
-        x + 42,
-        y + 36,
-      );
-      ctx.fillStyle = "#172018";
-      ctx.font = "700 28px Arial";
-      fitText(ctx, entry.title, x + 42, y + 76, dayWidth - 76, 28);
-      ctx.fillStyle = "#526058";
-      ctx.font = "400 21px Arial";
-      fitText(ctx, entry.room || entry.teacher || entry.code, x + 42, y + 112, dayWidth - 76, 21);
-      fitText(ctx, entry.teacher || entry.section, x + 42, y + 142, dayWidth - 76, 21);
-      y += itemHeight + 18;
+    ctx.fillStyle = index % 2 === 0 ? silver : "#c1c7d0";
+    ctx.font = "700 52px Arial";
+    ctx.fillText(day.slice(0, 3).toUpperCase(), left + 34, y + 78);
+    ctx.fillStyle = muted;
+    ctx.font = "700 22px Arial";
+    ctx.fillText(day.toUpperCase(), left + 38, y + 114);
+
+    roundedRect(ctx, left + 34, y + rowHeight - 72, 106, 40, 20, "rgba(255, 255, 255, 0.1)");
+    ctx.fillStyle = silver;
+    ctx.font = "700 20px Arial";
+    ctx.fillText(`${dayEntries.length} ITEM${dayEntries.length === 1 ? "" : "S"}`, left + 52, y + rowHeight - 45);
+
+    const scheduleX = left + 198;
+    const scheduleY = y + 22;
+    const scheduleWidth = tableWidth - 228;
+    const scheduleHeight = rowHeight - 44;
+
+    if (dayEntries.length === 0) {
+      roundedRect(ctx, scheduleX, scheduleY, scheduleWidth, scheduleHeight, 22, "rgba(255, 255, 255, 0.065)");
+      ctx.fillStyle = muted;
+      ctx.font = "700 30px Arial";
+      ctx.fillText("No scheduled class", scheduleX + 34, scheduleY + scheduleHeight / 2 + 10);
+      return;
+    }
+
+    const visibleEntries = dayEntries.slice(0, 3);
+    const itemGap = 12;
+    const itemHeight = Math.min(
+      112,
+      (scheduleHeight - itemGap * (visibleEntries.length - 1)) /
+        visibleEntries.length,
+    );
+    const itemGroupHeight =
+      itemHeight * visibleEntries.length + itemGap * (visibleEntries.length - 1);
+    const itemStartY = scheduleY + (scheduleHeight - itemGroupHeight) / 2;
+
+    visibleEntries.forEach((entry, entryIndex) => {
+      const itemY = itemStartY + entryIndex * (itemHeight + itemGap);
+      drawScheduleCard(ctx, entry, scheduleX, itemY, scheduleWidth, itemHeight);
     });
+
+    if (dayEntries.length > visibleEntries.length) {
+      ctx.fillStyle = muted;
+      ctx.font = "700 20px Arial";
+      ctx.fillText(
+        `+${dayEntries.length - visibleEntries.length} more`,
+        scheduleX + scheduleWidth - 108,
+        scheduleY + scheduleHeight - 18,
+      );
+    }
   });
 
-  ctx.fillStyle = "#647067";
+  ctx.fillStyle = muted;
   ctx.font = "400 24px Arial";
-  ctx.fillText("Generated by SmartSched Local", 90, height - 48);
+  ctx.fillText("Generated by SmartSched Local", 76, height - 34);
+  ctx.fillStyle = "#9ca3af";
+  ctx.fillRect(width - 272, height - 50, 196, 8);
+}
+
+function drawScheduleCard(
+  ctx: CanvasRenderingContext2D,
+  entry: ScheduleEntry,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const accent = wallpaperTypeStyle[entry.type];
+  const card = "#252932";
+
+  ctx.shadowColor = "rgba(0, 0, 0, 0.18)";
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 4;
+  roundedRect(ctx, x, y, width, height, 18, card);
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+
+  ctx.fillStyle = accent;
+  ctx.fillRect(x, y, 10, height);
+
+  roundedRect(ctx, x + 30, y + 16, 202, height - 32, 18, "#323741");
+  ctx.fillStyle = "#f1f3f6";
+  ctx.font = "700 22px Arial";
+  drawFittedText(
+    ctx,
+    formatTime(entry.start),
+    x + 54,
+    y + height / 2 - 10,
+    158,
+    22,
+    17,
+  );
+  ctx.font = "700 18px Arial";
+  ctx.fillStyle = "#c3c8d0";
+  drawFittedText(ctx, formatTime(entry.end), x + 54, y + height / 2 + 20, 158, 18, 14);
+
+  ctx.fillStyle = "#f4f6f8";
+  ctx.font = "700 28px Arial";
+  drawWrappedText(
+    ctx,
+    entry.title.toUpperCase(),
+    x + 260,
+    y + 34,
+    width - 450,
+    27,
+    2,
+  );
+
+  const detailY = y + height - 34;
+  drawDetailChip(ctx, "CODE", entry.code || "-", x + 260, detailY, 200);
+  drawDetailChip(ctx, "ROOM", entry.room || "-", x + 476, detailY, 190);
+
+  roundedRect(ctx, x + width - 138, y + 18, 100, 34, 17, "#3a3f49");
+  ctx.fillStyle = "#e5e7eb";
+  ctx.font = "700 17px Arial";
+  drawFittedText(ctx, entry.type.toUpperCase(), x + width - 120, y + 41, 68, 17, 12);
+}
+
+function drawDetailChip(
+  ctx: CanvasRenderingContext2D,
+  label: string,
+  value: string,
+  x: number,
+  y: number,
+  width: number,
+) {
+  roundedRect(ctx, x, y, width, 28, 14, "#343943");
+  ctx.fillStyle = "#aeb5bf";
+  ctx.font = "700 12px Arial";
+  ctx.fillText(label, x + 14, y + 18);
+  ctx.fillStyle = "#f1f3f6";
+  ctx.font = "700 16px Arial";
+  drawFittedText(ctx, value, x + 68, y + 19, width - 82, 16, 12);
 }
 
 function roundedRect(
@@ -919,18 +1107,66 @@ function roundedRect(
   ctx.fill();
 }
 
-function fitText(
+function drawFittedText(
   ctx: CanvasRenderingContext2D,
   text: string,
   x: number,
   y: number,
   maxWidth: number,
   fontSize: number,
+  minSize: number,
 ) {
   let size = fontSize;
-  while (ctx.measureText(text).width > maxWidth && size > 15) {
+  while (ctx.measureText(text).width > maxWidth && size > minSize) {
     size -= 1;
     ctx.font = ctx.font.replace(/\d+px/, `${size}px`);
   }
   ctx.fillText(text || "-", x, y);
+}
+
+function drawWrappedText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number,
+  maxLines: number,
+) {
+  const words = text.split(" ").filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+
+  words.forEach((word) => {
+    const testLine = line ? `${line} ${word}` : word;
+    if (ctx.measureText(testLine).width <= maxWidth || !line) {
+      line = testLine;
+      return;
+    }
+
+    lines.push(line);
+    line = word;
+  });
+
+  if (line) {
+    lines.push(line);
+  }
+
+  lines.slice(0, maxLines).forEach((lineText, index) => {
+    const isLast = index === maxLines - 1 && lines.length > maxLines;
+    const finalText = isLast ? trimToWidth(ctx, `${lineText}...`, maxWidth) : lineText;
+    ctx.fillText(finalText, x, y + index * lineHeight);
+  });
+}
+
+function trimToWidth(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+) {
+  let trimmed = text;
+  while (ctx.measureText(trimmed).width > maxWidth && trimmed.length > 4) {
+    trimmed = `${trimmed.slice(0, -4)}...`;
+  }
+  return trimmed;
 }
