@@ -2,24 +2,31 @@
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BatteryMedium,
   Bell,
   CalendarClock,
+  Camera,
   FileDown,
+  Flashlight,
   ImageDown,
   MoonStar,
   Plus,
   Save,
+  SignalHigh,
   Sun,
   Trash2,
   Upload,
+  X,
 } from "lucide-react";
 import {
   days,
   scheduleTypes,
+  wallpaperStyles,
   type DayName,
   type ScheduleEntry,
   type ScheduleSettings,
   type ScheduleType,
+  type WallpaperStyle,
 } from "@/lib/types";
 import {
   entriesForDay,
@@ -37,8 +44,9 @@ const themeKey = "smartsched.local.theme.v1";
 
 const defaultSettings: ScheduleSettings = {
   ownerName: "My Schedule",
-  schoolName: "SmartSched Local",
-  wallpaperTitle: "Weekly Class Schedule",
+  schoolName: "University of Cebu",
+  wallpaperTitle: "Class Schedule",
+  wallpaperStyle: "Dark",
 };
 
 const blankEntry: Omit<ScheduleEntry, "id"> = {
@@ -133,7 +141,7 @@ function readStoredSchedule(): StoredSchedule | null {
 
     const parsed = JSON.parse(raw) as RawStoredSchedule;
     return {
-      settings: { ...defaultSettings, ...parsed.settings },
+      settings: normalizeSettings(parsed.settings),
       entries: Array.isArray(parsed.entries)
         ? parsed.entries.map(normalizeEntry)
         : sampleEntries,
@@ -141,6 +149,20 @@ function readStoredSchedule(): StoredSchedule | null {
   } catch {
     return null;
   }
+}
+
+function normalizeSettings(settings?: Partial<ScheduleSettings>): ScheduleSettings {
+  const normalized = { ...defaultSettings, ...settings };
+
+  if (normalized.wallpaperTitle === "Weekly Class Schedule") {
+    normalized.wallpaperTitle = "Class Schedule";
+  }
+
+  if (normalized.schoolName === "SmartSched Local") {
+    normalized.schoolName = "University of Cebu";
+  }
+
+  return normalized;
 }
 
 function normalizeEntry(entry: ScheduleEntry | LegacyScheduleEntry): ScheduleEntry {
@@ -169,44 +191,62 @@ function getNotificationPermission(): NotificationPermission | "unsupported" {
 }
 
 export function ScheduleApp() {
-  const storedSchedule = useMemo(() => readStoredSchedule(), []);
-  const [settings, setSettings] = useState<ScheduleSettings>(
-    () => storedSchedule?.settings ?? defaultSettings,
-  );
-  const [entries, setEntries] = useState<ScheduleEntry[]>(
-    () => storedSchedule?.entries ?? sampleEntries,
-  );
+  const [settings, setSettings] = useState<ScheduleSettings>(defaultSettings);
+  const [entries, setEntries] = useState<ScheduleEntry[]>(sampleEntries);
   const [selectedDay, setSelectedDay] = useState<DayName>("Monday");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<Omit<ScheduleEntry, "id">>(blankEntry);
   const [message, setMessage] = useState("");
   const [notificationState, setNotificationState] =
-    useState<NotificationPermission | "unsupported">(getNotificationPermission);
-  const [theme, setTheme] = useState<"light" | "dark">(() => {
-    if (typeof window === "undefined") {
-      return "light";
-    }
-
-    const storedTheme = window.localStorage.getItem(themeKey);
-    if (storedTheme === "dark" || storedTheme === "light") {
-      return storedTheme;
-    }
-
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
-  });
+    useState<NotificationPermission | "unsupported">("unsupported");
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [storageReady, setStorageReady] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify({ settings, entries }));
-  }, [settings, entries]);
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      const storedSchedule = readStoredSchedule();
+      if (storedSchedule) {
+        setSettings(storedSchedule.settings);
+        setEntries(storedSchedule.entries);
+      }
+
+      const storedTheme = window.localStorage.getItem(themeKey);
+      if (storedTheme === "dark" || storedTheme === "light") {
+        setTheme(storedTheme);
+      } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+        setTheme("dark");
+      }
+
+      setNotificationState(getNotificationPermission());
+      setStorageReady(true);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
+    if (!storageReady) {
+      return;
+    }
+
+    localStorage.setItem(storageKey, JSON.stringify({ settings, entries }));
+  }, [settings, entries, storageReady]);
+
+  useEffect(() => {
+    if (!storageReady) {
+      return;
+    }
+
     document.documentElement.classList.toggle("dark", theme === "dark");
     document.documentElement.style.colorScheme = theme;
     window.localStorage.setItem(themeKey, theme);
-  }, [theme]);
+  }, [theme, storageReady]);
 
   useEffect(() => {
     if (notificationState !== "granted") {
@@ -225,6 +265,10 @@ export function ScheduleApp() {
   const selectedEntries = useMemo(
     () => entriesForDay(entries, selectedDay),
     [entries, selectedDay],
+  );
+  const previewEntries = useMemo(
+    () => sortedEntries,
+    [sortedEntries],
   );
   const candidate = useMemo<ScheduleEntry>(
     () => ({ id: editingId ?? "new", ...form }),
@@ -423,6 +467,10 @@ export function ScheduleApp() {
               <ImageDown aria-hidden="true" className="size-4" />
               Wallpaper
             </button>
+            <button className="tool-button" onClick={() => setPreviewOpen(true)}>
+              <Camera aria-hidden="true" className="size-4" />
+              Preview
+            </button>
             <button className="tool-button" onClick={exportCalendar}>
               <CalendarClock aria-hidden="true" className="size-4" />
               Alarms
@@ -431,6 +479,29 @@ export function ScheduleApp() {
               <Bell aria-hidden="true" className="size-4" />
               Notify
             </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-5 py-6 lg:px-8">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+            <p className="text-sm font-semibold text-foreground">1. Add your classes</p>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              Enter subjects, rooms, times, and reminders. Save locally in your browser.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+            <p className="text-sm font-semibold text-foreground">2. Download wallpaper</p>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              Create a lock screen background sized for phones. Choose a style and keep the top area visible.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+            <p className="text-sm font-semibold text-foreground">3. Import alarms</p>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              Download the `.ics` file and open it on your phone to add calendar reminders.
+            </p>
           </div>
         </div>
       </section>
@@ -460,6 +531,24 @@ export function ScheduleApp() {
                   setSettings((current) => ({ ...current, wallpaperTitle: value }))
                 }
               />
+              <Field label="Wallpaper style">
+                <select
+                  className="field"
+                  value={settings.wallpaperStyle}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      wallpaperStyle: event.target.value as WallpaperStyle,
+                    }))
+                  }
+                >
+                  {wallpaperStyles.map((style) => (
+                    <option key={style} value={style}>
+                      {style}
+                    </option>
+                  ))}
+                </select>
+              </Field>
             </div>
           </Panel>
 
@@ -688,6 +777,17 @@ export function ScheduleApp() {
           </div>
         </div>
       </section>
+
+      {previewOpen ? (
+        <PhonePreviewDialog
+          title={settings.wallpaperTitle}
+          schoolName={settings.schoolName}
+          styleName={settings.wallpaperStyle}
+          entries={previewEntries}
+          onClose={() => setPreviewOpen(false)}
+          onDownload={downloadWallpaper}
+        />
+      ) : null}
     </main>
   );
 }
@@ -919,31 +1019,67 @@ function drawWallpaper(
   settings: ScheduleSettings,
   entries: ScheduleEntry[],
 ) {
-  const silver = "#d9dde4";
-  const muted = "#8f98a6";
-  const soft = "#f1f3f6";
-  const panel = "#2d3037";
-  const panelAlt = "#343840";
-  const line = "#555c68";
+  const headerHeight = 720;
+
+  let pageStart = "#111318";
+  let pageMid = "#22252b";
+  let pageEnd = "#0d0f13";
+  let headerStart = "#30333a";
+  let headerMid = "#24272d";
+  let headerEnd = "#191b20";
+  let silver = "#d9dde4";
+  let muted = "#8f98a6";
+  let soft = "#f1f3f6";
+  let panel = "#2d3037";
+  let panelAlt = "#343840";
+  let line = "#555c68";
+
+  if (settings.wallpaperStyle === "Light") {
+    pageStart = "#f8fafb";
+    pageMid = "#eaedf0";
+    pageEnd = "#dde2e7";
+    headerStart = "#ffffff";
+    headerMid = "#f8fafc";
+    headerEnd = "#e8ecef";
+    silver = "#475569";
+    muted = "#64748b";
+    soft = "#0f172a";
+    panel = "#f8fafc";
+    panelAlt = "#eef2f7";
+    line = "#cbd5e1";
+  } else if (settings.wallpaperStyle === "Minimal") {
+    pageStart = "#f9fafb";
+    pageMid = "#f9fafb";
+    pageEnd = "#f9fafb";
+    headerStart = "#ffffff";
+    headerMid = "#f4f5f6";
+    headerEnd = "#eef0f2";
+    silver = "#334155";
+    muted = "#64748b";
+    soft = "#0f172a";
+    panel = "#f3f4f6";
+    panelAlt = "#e2e8f0";
+    line = "#cbd5e1";
+  }
 
   const pageGradient = ctx.createLinearGradient(0, 0, width, height);
-  pageGradient.addColorStop(0, "#111318");
-  pageGradient.addColorStop(0.52, "#22252b");
-  pageGradient.addColorStop(1, "#0d0f13");
+  pageGradient.addColorStop(0, pageStart);
+  pageGradient.addColorStop(0.52, pageMid);
+  pageGradient.addColorStop(1, pageEnd);
   ctx.fillStyle = pageGradient;
   ctx.fillRect(0, 0, width, height);
 
-  const headerGradient = ctx.createLinearGradient(0, 0, width, 360);
-  headerGradient.addColorStop(0, "#30333a");
-  headerGradient.addColorStop(0.55, "#24272d");
-  headerGradient.addColorStop(1, "#191b20");
+  const headerGradient = ctx.createLinearGradient(0, 0, width, headerHeight);
+  headerGradient.addColorStop(0, headerStart);
+  headerGradient.addColorStop(0.55, headerMid);
+  headerGradient.addColorStop(1, headerEnd);
   ctx.fillStyle = headerGradient;
-  ctx.fillRect(0, 0, width, 360);
+  ctx.fillRect(0, 0, width, headerHeight);
 
   ctx.fillStyle = "#9ca3af";
-  ctx.fillRect(0, 342, width, 10);
+  ctx.fillRect(0, headerHeight - 18, width, 10);
   ctx.fillStyle = "#4b5563";
-  ctx.fillRect(0, 352, width, 8);
+  ctx.fillRect(0, headerHeight - 8, width, 8);
 
   ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
   for (let x = 0; x < width; x += 64) {
@@ -953,31 +1089,29 @@ function drawWallpaper(
     ctx.fillRect(0, y, width, 1);
   }
 
-  const title = settings.wallpaperTitle || "Weekly Class Schedule";
-  ctx.fillStyle = soft;
-  ctx.font = "700 70px Arial";
-  drawFittedText(ctx, title, 76, 104, width - 152, 70, 44);
-  ctx.font = "400 38px Arial";
-  drawFittedText(ctx, settings.ownerName || "My Schedule", 80, 178, 760, 38, 26);
-  ctx.fillStyle = muted;
-  ctx.font = "400 30px Arial";
-  drawFittedText(ctx, settings.schoolName || "SmartSched Local", 80, 232, 850, 30, 22);
-
-  roundedRect(ctx, width - 430, 188, 300, 62, 31, "rgba(255, 255, 255, 0.08)");
-  ctx.fillStyle = silver;
-  ctx.font = "700 24px Arial";
-  ctx.fillText("1440 x 2560", width - 390, 227);
-  ctx.fillStyle = muted;
-  ctx.font = "400 20px Arial";
-  ctx.fillText("PHONE WALLPAPER", width - 245, 227);
-
   const left = 58;
-  const top = 404;
+  const top = headerHeight + 16;
   const tableWidth = width - left * 2;
-  const bottom = height - 86;
+  const bottom = height - 286;
   const tableHeight = bottom - top;
   const rowGap = 16;
   const rowHeight = (tableHeight - rowGap * (days.length - 1)) / days.length;
+  const title = settings.wallpaperTitle || "Class Schedule";
+
+  ctx.fillStyle = soft;
+  ctx.font = "700 58px Arial";
+  drawFittedText(ctx, title, left + 18, top - 92, 800, 58, 38);
+  ctx.fillStyle = muted;
+  ctx.font = "400 30px Arial";
+  drawFittedText(ctx, settings.schoolName || "University of Cebu", left + 20, top - 46, 820, 30, 22);
+
+  roundedRect(ctx, width - 430, top - 92, 300, 62, 31, "rgba(255, 255, 255, 0.08)");
+  ctx.fillStyle = silver;
+  ctx.font = "700 24px Arial";
+  ctx.fillText("1440 x 2560", width - 390, top - 53);
+  ctx.fillStyle = muted;
+  ctx.font = "400 20px Arial";
+  ctx.fillText("PHONE WALLPAPER", width - 245, top - 53);
 
   ctx.shadowColor = "rgba(0, 0, 0, 0.38)";
   ctx.shadowBlur = 38;
@@ -1049,9 +1183,9 @@ function drawWallpaper(
 
   ctx.fillStyle = muted;
   ctx.font = "400 24px Arial";
-  ctx.fillText("Generated by SmartSched Local", 76, height - 34);
+  ctx.fillText("Generated by SmartSched Local", 76, height - 232);
   ctx.fillStyle = "#9ca3af";
-  ctx.fillRect(width - 272, height - 50, 196, 8);
+  ctx.fillRect(width - 272, height - 248, 196, 8);
 }
 
 function drawScheduleCard(
@@ -1064,6 +1198,10 @@ function drawScheduleCard(
 ) {
   const accent = wallpaperTypeStyle[entry.type];
   const card = "#252932";
+  const compact = height < 92;
+  const timeWidth = compact ? 168 : 202;
+  const contentX = x + (compact ? 218 : 260);
+  const typeWidth = compact ? 0 : 138;
 
   ctx.shadowColor = "rgba(0, 0, 0, 0.18)";
   ctx.shadowBlur = 10;
@@ -1075,42 +1213,52 @@ function drawScheduleCard(
   ctx.fillStyle = accent;
   ctx.fillRect(x, y, 10, height);
 
-  roundedRect(ctx, x + 30, y + 16, 202, height - 32, 18, "#323741");
+  roundedRect(ctx, x + 30, y + (compact ? 10 : 16), timeWidth, height - (compact ? 20 : 32), 18, "#323741");
   ctx.fillStyle = "#f1f3f6";
-  ctx.font = "700 22px Arial";
+  ctx.font = `700 ${compact ? 18 : 22}px Arial`;
   drawFittedText(
     ctx,
     formatTime(entry.start),
     x + 54,
-    y + height / 2 - 10,
-    158,
-    22,
-    17,
+    y + height / 2 - (compact ? 8 : 10),
+    timeWidth - 44,
+    compact ? 18 : 22,
+    compact ? 14 : 17,
   );
-  ctx.font = "700 18px Arial";
+  ctx.font = `700 ${compact ? 15 : 18}px Arial`;
   ctx.fillStyle = "#c3c8d0";
-  drawFittedText(ctx, formatTime(entry.end), x + 54, y + height / 2 + 20, 158, 18, 14);
+  drawFittedText(
+    ctx,
+    formatTime(entry.end),
+    x + 54,
+    y + height / 2 + (compact ? 18 : 20),
+    timeWidth - 44,
+    compact ? 15 : 18,
+    12,
+  );
 
   ctx.fillStyle = "#f4f6f8";
-  ctx.font = "700 28px Arial";
+  ctx.font = `700 ${compact ? 22 : 28}px Arial`;
   drawWrappedText(
     ctx,
     entry.title.toUpperCase(),
-    x + 260,
-    y + 34,
-    width - 450,
-    27,
-    2,
+    contentX,
+    y + (compact ? 28 : 34),
+    width - (contentX - x) - typeWidth - 38,
+    compact ? 22 : 27,
+    compact ? 1 : 2,
   );
 
-  const detailY = y + height - 34;
-  drawDetailChip(ctx, "CODE", entry.code || "-", x + 260, detailY, 200);
-  drawDetailChip(ctx, "ROOM", entry.room || "-", x + 476, detailY, 190);
+  const detailY = y + height - (compact ? 30 : 34);
+  drawDetailChip(ctx, "CODE", entry.code || "-", contentX, detailY, compact ? 180 : 200);
+  drawDetailChip(ctx, "ROOM", entry.room || "-", contentX + (compact ? 194 : 216), detailY, compact ? 170 : 190);
 
-  roundedRect(ctx, x + width - 138, y + 18, 100, 34, 17, "#3a3f49");
-  ctx.fillStyle = "#e5e7eb";
-  ctx.font = "700 17px Arial";
-  drawFittedText(ctx, entry.type.toUpperCase(), x + width - 120, y + 41, 68, 17, 12);
+  if (!compact) {
+    roundedRect(ctx, x + width - 138, y + 18, 100, 34, 17, "#3a3f49");
+    ctx.fillStyle = "#e5e7eb";
+    ctx.font = "700 17px Arial";
+    drawFittedText(ctx, entry.type.toUpperCase(), x + width - 120, y + 41, 68, 17, 12);
+  }
 }
 
 function drawDetailChip(
@@ -1195,6 +1343,255 @@ function drawWrappedText(
     const finalText = isLast ? trimToWidth(ctx, `${lineText}...`, maxWidth) : lineText;
     ctx.fillText(finalText, x, y + index * lineHeight);
   });
+}
+
+function PhonePreviewDialog({
+  title,
+  schoolName,
+  styleName,
+  entries,
+  onClose,
+  onDownload,
+}: {
+  title: string;
+  schoolName: string;
+  styleName: WallpaperStyle;
+  entries: ScheduleEntry[];
+  onClose: () => void;
+  onDownload: () => void | Promise<void>;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/72 px-4 py-5 backdrop-blur-sm sm:px-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="phone-preview-title"
+    >
+      <div className="mx-auto flex min-h-full w-full max-w-5xl items-center justify-center">
+        <div className="w-full rounded-2xl border border-white/10 bg-surface p-4 shadow-[0_32px_110px_-30px_rgba(0,0,0,0.7)] sm:p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2
+                id="phone-preview-title"
+                className="text-lg font-semibold text-foreground"
+              >
+                Phone Preview
+              </h2>
+              <p className="mt-1 text-sm text-muted">
+                Check the iPhone safe areas before downloading.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button className="primary-button" onClick={onDownload}>
+                <ImageDown aria-hidden="true" className="size-4" />
+                Download
+              </button>
+              <button
+                className="secondary-button"
+                aria-label="Close phone preview"
+                onClick={onClose}
+              >
+                <X aria-hidden="true" className="size-4" />
+                Close
+              </button>
+            </div>
+          </div>
+          <PhonePreview
+            title={title}
+            schoolName={schoolName}
+            styleName={styleName}
+            entries={entries}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PhonePreview({
+  title,
+  schoolName,
+  styleName,
+  entries,
+}: {
+  title: string;
+  schoolName: string;
+  styleName: WallpaperStyle;
+  entries: ScheduleEntry[];
+}) {
+  const styleMap: Record<
+    WallpaperStyle,
+    {
+      screen: string;
+      header: string;
+      row: string;
+      item: string;
+      chip: string;
+      divider: string;
+      text: string;
+      muted: string;
+      system: string;
+      systemSoft: string;
+    }
+  > = {
+    Dark: {
+      screen: "bg-[#08090b]",
+      header: "bg-black/24",
+      row: "border-white/10 bg-white/[0.075]",
+      item: "bg-black/34",
+      chip: "bg-white/10",
+      divider: "bg-white/45",
+      text: "text-white",
+      muted: "text-slate-300/78",
+      system: "text-white",
+      systemSoft: "text-white/82",
+    },
+    Light: {
+      screen: "bg-[#eef2f5]",
+      header: "bg-white/60",
+      row: "border-slate-300/70 bg-white/72",
+      item: "bg-slate-950/[0.055]",
+      chip: "bg-slate-900/10",
+      divider: "bg-slate-700/45",
+      text: "text-slate-950",
+      muted: "text-slate-600",
+      system: "text-slate-950",
+      systemSoft: "text-slate-900/72",
+    },
+    Minimal: {
+      screen: "bg-[#f7f8f6]",
+      header: "bg-white/40",
+      row: "border-slate-200 bg-white/62",
+      item: "bg-slate-900/[0.045]",
+      chip: "bg-slate-900/10",
+      divider: "bg-slate-500/40",
+      text: "text-slate-950",
+      muted: "text-slate-500",
+      system: "text-slate-950",
+      systemSoft: "text-slate-900/68",
+    },
+  };
+  const style = styleMap[styleName];
+  const visibleDays = days.map((day) => ({
+    day,
+    entries: entriesForDay(entries, day),
+  }));
+
+  return (
+    <div className="mx-auto w-full max-w-[430px]">
+      <div className="relative mx-auto rounded-[58px] bg-[#08080a] p-3 shadow-[0_38px_90px_-36px_rgba(0,0,0,0.62)] ring-1 ring-white/10">
+        <div className="pointer-events-none absolute inset-x-12 top-1 h-2 rounded-b-full bg-white/10" />
+        <div
+          className={`relative h-[760px] overflow-hidden rounded-[46px] ring-1 ring-white/10 ${style.screen}`}
+        >
+          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(rgba(255,255,255,0.045)_1px,transparent_1px)] bg-[size:28px_28px] opacity-50" />
+          <div className="absolute inset-x-0 top-0 z-30 flex h-12 items-center justify-between px-7 text-[13px] font-bold">
+            <span className={style.system}>9:41</span>
+            <div className={`flex items-center gap-1.5 ${style.system}`}>
+              <SignalHigh aria-hidden="true" className="size-4" />
+              <span className="text-[11px] font-extrabold">LTE</span>
+              <BatteryMedium aria-hidden="true" className="size-[18px]" />
+            </div>
+          </div>
+          <div className="absolute left-1/2 top-[13px] z-40 h-7 w-[118px] -translate-x-1/2 rounded-full bg-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]" />
+          <div
+            className={`pointer-events-none absolute inset-x-0 top-[124px] z-20 text-center ${style.systemSoft}`}
+          >
+            <p className="text-[19px] font-extrabold">Mon Jul 27</p>
+            <p className="mt-1 text-[68px] font-semibold leading-none tracking-normal">
+              5:22
+            </p>
+          </div>
+
+          <div className={`absolute inset-x-5 top-[204px] z-10 ${style.header} rounded-2xl px-3 py-2.5`}>
+            <h3 className={`truncate text-lg font-extrabold leading-5 ${style.text}`}>
+              {title || "Class Schedule"}
+            </h3>
+            <p className={`truncate text-[11px] font-semibold leading-4 ${style.muted}`}>
+              {schoolName || "University of Cebu"}
+            </p>
+          </div>
+
+          <div className={`absolute inset-x-5 top-[272px] z-10 h-1 rounded-full ${style.divider}`} />
+
+          <div className="absolute inset-x-3 bottom-[112px] top-[284px] z-10 grid grid-rows-5 gap-2">
+            {visibleDays.map(({ day, entries: dayEntries }) => (
+              <section
+                key={day}
+                className={`grid min-h-0 grid-cols-[54px_1fr] gap-2 rounded-2xl border px-2 py-2 shadow-[0_14px_34px_-28px_rgba(0,0,0,0.65)] ${style.row}`}
+              >
+                <div className="flex min-h-0 flex-col justify-between border-r border-current/[0.18] pr-1.5">
+                  <div>
+                    <p className={`text-lg font-extrabold leading-none ${style.text}`}>
+                      {day.slice(0, 3).toUpperCase()}
+                    </p>
+                    <p className={`mt-0.5 text-[8px] font-extrabold uppercase leading-none ${style.muted}`}>
+                      {day}
+                    </p>
+                  </div>
+                  <span className={`w-fit rounded-full px-1.5 py-0.5 text-[8px] font-extrabold leading-none ${style.chip} ${style.text}`}>
+                    {dayEntries.length}
+                  </span>
+                </div>
+
+                <div className="grid min-h-0 content-center gap-1">
+                  {dayEntries.length === 0 ? (
+                    <div className={`rounded-xl px-2 py-2 text-[10px] font-bold ${style.item} ${style.muted}`}>
+                      No scheduled class
+                    </div>
+                  ) : (
+                    dayEntries.slice(0, 3).map((entry) => (
+                      <article
+                        key={`${day}-${entry.id}`}
+                        className={`grid min-h-0 grid-cols-[58px_1fr] items-center gap-1.5 rounded-xl px-1.5 py-1 ${style.item}`}
+                      >
+                        <div className={`rounded-lg px-1.5 py-0.5 text-[8px] font-extrabold leading-[11px] ${style.chip} ${style.text}`}>
+                          <p>{formatTime(entry.start)}</p>
+                          <p className={style.muted}>{formatTime(entry.end)}</p>
+                        </div>
+                        <div className="min-w-0">
+                          <p className={`truncate text-[9px] font-extrabold uppercase leading-[11px] ${style.text}`}>
+                            {entry.title || "Untitled"}
+                          </p>
+                          <p className={`truncate text-[8px] font-bold leading-[10px] ${style.muted}`}>
+                            {[entry.code, entry.room].filter(Boolean).join(" - ") || entry.type}
+                          </p>
+                        </div>
+                      </article>
+                    ))
+                  )}
+                  {dayEntries.length > 3 ? (
+                    <p className={`px-1.5 text-[8px] font-bold leading-none ${style.muted}`}>
+                      +{dayEntries.length - 3} more
+                    </p>
+                  ) : null}
+                </div>
+              </section>
+            ))}
+          </div>
+
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-7 pb-3 pt-14 text-white">
+            <div className="mb-4 flex items-center justify-between">
+              <span className="flex size-14 items-center justify-center rounded-full bg-black/60 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.16)] backdrop-blur">
+                <Flashlight aria-hidden="true" className="size-6" />
+              </span>
+              <span className="rounded-full bg-black/30 px-3 py-1.5 text-sm font-bold backdrop-blur">
+                Do Not Disturb
+              </span>
+              <span className="flex size-14 items-center justify-center rounded-full bg-black/60 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.16)] backdrop-blur">
+                <Camera aria-hidden="true" className="size-6" />
+              </span>
+            </div>
+            <div className="mx-auto h-1.5 w-36 rounded-full bg-white" />
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 rounded-2xl border border-border bg-surface p-4 text-sm leading-6 text-muted">
+        Preview uses fixed wallpaper safe areas: schedule rows are fitted
+        between the iPhone clock and home indicator.
+      </div>
+    </div>
+  );
 }
 
 function trimToWidth(
