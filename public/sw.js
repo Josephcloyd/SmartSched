@@ -1,4 +1,4 @@
-const CACHE_NAME = "smartsched-local-v1";
+const CACHE_NAME = "smartsched-local-v6";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {

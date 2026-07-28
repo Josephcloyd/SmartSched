@@ -1,5 +1,15 @@
 import { days, type DayName, type ScheduleEntry } from "@/lib/types";
 
+const jsDayByName: Record<DayName, number> = {
+  Sunday: 0,
+  Monday: 1,
+  Tuesday: 2,
+  Wednesday: 3,
+  Thursday: 4,
+  Friday: 5,
+  Saturday: 6,
+};
+
 export function uid() {
   return crypto.randomUUID();
 }
@@ -49,10 +59,15 @@ export function hasTimeConflict(
 }
 
 export function nextDateForDay(day: DayName, from = new Date()) {
-  const jsTargetDay = days.indexOf(day) + 1;
+  const jsTargetDay = jsDayByName[day];
   const date = new Date(from);
   const distance = (jsTargetDay - date.getDay() + 7) % 7;
   date.setDate(date.getDate() + distance);
   date.setHours(0, 0, 0, 0);
   return date;
+}
+
+export function dayNameForDate(date: Date): DayName {
+  const found = days.find((day) => jsDayByName[day] === date.getDay());
+  return found ?? "Monday";
 }
