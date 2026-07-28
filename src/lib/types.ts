@@ -9,8 +9,11 @@ export const scheduleTypes = [
   "Event",
 ] as const;
 
+export const wallpaperStyles = ["Dark", "Light", "Minimal"] as const;
+
 export type DayName = (typeof days)[number];
 export type ScheduleType = (typeof scheduleTypes)[number];
+export type WallpaperStyle = (typeof wallpaperStyles)[number];
 
 export type ScheduleEntry = {
   id: string;
@@ -28,4 +31,5 @@ export type ScheduleSettings = {
   ownerName: string;
   schoolName: string;
   wallpaperTitle: string;
+  wallpaperStyle: WallpaperStyle;
 };
