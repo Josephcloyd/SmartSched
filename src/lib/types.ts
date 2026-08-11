@@ -18,6 +18,7 @@ export const scheduleTypes = [
 ] as const;
 
 export const wallpaperStyles = [
+  "School Palette",
   "Soft Charcoal",
   "Sage",
   "Warm Gray",
@@ -29,7 +30,24 @@ export const wallpaperLayoutModes = ["Compact", "Balanced", "Spacious"] as const
 
 export const wallpaperExportFormats = ["PNG", "JPG"] as const;
 
+export const schoolPaletteIds = [
+  "university-of-cebu",
+  "university-of-the-philippines",
+  "cebu-normal-university",
+  "cebu-technological-university",
+  "polytechnic-university-of-the-philippines",
+  "mindanao-state-university",
+  "west-visayas-state-university",
+  "bicol-university",
+  "central-luzon-state-university",
+  "ateneo-de-manila",
+  "de-la-salle-university",
+  "university-of-santo-tomas",
+  "university-of-san-carlos",
+] as const;
+
 export const wallpaperSizePresets = [
+  { id: "device-auto", group: "Device", label: "This device (automatic)", width: 0, height: 0 },
   { id: "custom", group: "Custom", label: "Custom size", width: 1080, height: 1920 },
   { id: "desktop-hd", group: "Desktop", label: "Desktop HD", width: 1366, height: 768 },
   { id: "desktop-fhd", group: "Desktop", label: "Desktop Full HD", width: 1920, height: 1080 },
@@ -65,6 +83,7 @@ export type ScheduleType = (typeof scheduleTypes)[number];
 export type WallpaperStyle = (typeof wallpaperStyles)[number];
 export type WallpaperLayoutMode = (typeof wallpaperLayoutModes)[number];
 export type WallpaperExportFormat = (typeof wallpaperExportFormats)[number];
+export type SchoolPaletteId = (typeof schoolPaletteIds)[number];
 export type WallpaperSizeGroup = (typeof wallpaperSizePresets)[number]["group"];
 export type WallpaperSizeId = (typeof wallpaperSizePresets)[number]["id"];
 
@@ -82,8 +101,7 @@ export type ScheduleEntry = {
 };
 
 export type ScheduleSettings = {
-  ownerName: string;
-  schoolName: string;
+  schoolPaletteId: SchoolPaletteId;
   wallpaperTitle: string;
   wallpaperStyle: WallpaperStyle;
   wallpaperSizeId: WallpaperSizeId;
