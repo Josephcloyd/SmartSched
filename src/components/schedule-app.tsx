@@ -7,9 +7,11 @@ import {
   Camera,
   FileDown,
   ImageDown,
+  MessageCircle,
   MoonStar,
   Plus,
   Save,
+  Send,
   Sun,
   Trash2,
   Upload,
@@ -17,6 +19,7 @@ import {
 } from "lucide-react";
 import {
   days,
+  schoolPaletteIds,
   wallpaperExportFormats,
   wallpaperLayoutModes,
   scheduleTypes,
@@ -26,6 +29,7 @@ import {
   type ScheduleEntry,
   type ScheduleSettings,
   type ScheduleType,
+  type SchoolPaletteId,
   type WallpaperExportFormat,
   type WallpaperLayoutMode,
   type WallpaperSizeGroup,
@@ -46,13 +50,14 @@ import {
 const storageKey = "smartsched.local.schedule.v1";
 const notifiedKey = "smartsched.local.notified.v1";
 const themeKey = "smartsched.local.theme.v1";
+const wallpaperTemplateMigrationKey = "smartsched.local.school-template.v1";
+const wallpaperDeviceSizeMigrationKey = "smartsched.local.device-size.v1";
 
 const defaultSettings: ScheduleSettings = {
-  ownerName: "My Schedule",
-  schoolName: "University of Cebu",
+  schoolPaletteId: "university-of-cebu",
   wallpaperTitle: "Class Schedule",
-  wallpaperStyle: "Soft Charcoal",
-  wallpaperSizeId: "android-qhd",
+  wallpaperStyle: "School Palette",
+  wallpaperSizeId: "device-auto",
   wallpaperCustomWidth: 1080,
   wallpaperCustomHeight: 1920,
   wallpaperLayoutMode: "Balanced",
@@ -64,7 +69,7 @@ const defaultSettings: ScheduleSettings = {
   wallpaperExportFormat: "PNG",
 };
 
-const wallpaperSizeGroups: WallpaperSizeGroup[] = ["Custom", "Desktop", "iPhone", "Android"];
+const wallpaperSizeGroups: WallpaperSizeGroup[] = ["Device", "Custom", "Desktop", "iPhone", "Android"];
 type WallpaperSizePreset = (typeof wallpaperSizePresets)[number];
 type SelectedWallpaperSize = Omit<WallpaperSizePreset, "width" | "height"> & {
   width: number;
@@ -98,9 +103,137 @@ type WallpaperLayoutProfile = {
   spacingScale: number;
   paddingScale: number;
   fontScale: number;
-  maxPhoneItems: number;
-  maxDesktopItems: number;
 };
+
+type SchoolPalette = {
+  id: SchoolPaletteId;
+  name: string;
+  category: "State universities" | "Private universities";
+  colors: readonly string[];
+  uiPrimary: string;
+  uiPrimaryStrong: string;
+  uiAccent: string;
+};
+
+const schoolPalettes: readonly SchoolPalette[] = [
+  {
+    id: "university-of-cebu",
+    name: "University of Cebu",
+    category: "Private universities",
+    colors: ["#0755a5", "#f5c400", "#ffffff"],
+    uiPrimary: "#0755a5",
+    uiPrimaryStrong: "#063b73",
+    uiAccent: "#d6a900",
+  },
+  {
+    id: "university-of-the-philippines",
+    name: "University of the Philippines",
+    category: "State universities",
+    colors: ["#7b1113", "#014421", "#ffffff"],
+    uiPrimary: "#7b1113",
+    uiPrimaryStrong: "#510b0d",
+    uiAccent: "#147045",
+  },
+  {
+    id: "cebu-normal-university",
+    name: "Cebu Normal University",
+    category: "State universities",
+    colors: ["#9d2235", "#f4b942", "#ffffff"],
+    uiPrimary: "#9d2235",
+    uiPrimaryStrong: "#661624",
+    uiAccent: "#bd8513",
+  },
+  {
+    id: "cebu-technological-university",
+    name: "Cebu Technological University",
+    category: "State universities",
+    colors: ["#007a5e", "#b21e35", "#f2c230", "#165c8d"],
+    uiPrimary: "#165c8d",
+    uiPrimaryStrong: "#0e3c5d",
+    uiAccent: "#b1840c",
+  },
+  {
+    id: "polytechnic-university-of-the-philippines",
+    name: "Polytechnic University of the Philippines",
+    category: "State universities",
+    colors: ["#800000", "#f6c344", "#ffffff"],
+    uiPrimary: "#800000",
+    uiPrimaryStrong: "#520000",
+    uiAccent: "#bd8910",
+  },
+  {
+    id: "mindanao-state-university",
+    name: "Mindanao State University",
+    category: "State universities",
+    colors: ["#7a1731", "#d6a928", "#ffffff"],
+    uiPrimary: "#7a1731",
+    uiPrimaryStrong: "#501020",
+    uiAccent: "#ac8110",
+  },
+  {
+    id: "west-visayas-state-university",
+    name: "West Visayas State University",
+    category: "State universities",
+    colors: ["#174a82", "#e3b341", "#ffffff"],
+    uiPrimary: "#174a82",
+    uiPrimaryStrong: "#0d3158",
+    uiAccent: "#b48514",
+  },
+  {
+    id: "bicol-university",
+    name: "Bicol University",
+    category: "State universities",
+    colors: ["#a61d2d", "#f0b323", "#ffffff"],
+    uiPrimary: "#a61d2d",
+    uiPrimaryStrong: "#6f131e",
+    uiAccent: "#b9820d",
+  },
+  {
+    id: "central-luzon-state-university",
+    name: "Central Luzon State University",
+    category: "State universities",
+    colors: ["#008000", "#ffd700", "#ffffff"],
+    uiPrimary: "#006b36",
+    uiPrimaryStrong: "#004724",
+    uiAccent: "#b59600",
+  },
+  {
+    id: "ateneo-de-manila",
+    name: "Ateneo de Manila University",
+    category: "Private universities",
+    colors: ["#003a70", "#f2b134", "#ffffff"],
+    uiPrimary: "#003a70",
+    uiPrimaryStrong: "#00264a",
+    uiAccent: "#c18412",
+  },
+  {
+    id: "de-la-salle-university",
+    name: "De La Salle University",
+    category: "Private universities",
+    colors: ["#00703c", "#ffffff", "#d4af37"],
+    uiPrimary: "#00703c",
+    uiPrimaryStrong: "#004b29",
+    uiAccent: "#a37d0c",
+  },
+  {
+    id: "university-of-santo-tomas",
+    name: "University of Santo Tomas",
+    category: "Private universities",
+    colors: ["#f4c430", "#1b1b1b", "#ffffff"],
+    uiPrimary: "#615018",
+    uiPrimaryStrong: "#332a0d",
+    uiAccent: "#d4a900",
+  },
+  {
+    id: "university-of-san-carlos",
+    name: "University of San Carlos",
+    category: "Private universities",
+    colors: ["#006633", "#f5c400", "#ffffff"],
+    uiPrimary: "#006633",
+    uiPrimaryStrong: "#004221",
+    uiAccent: "#c99f00",
+  },
+] as const;
 
 const blankEntry: Omit<ScheduleEntry, "id"> = {
   title: "",
@@ -201,8 +334,25 @@ function readStoredSchedule(): StoredSchedule | null {
     }
 
     const parsed = JSON.parse(raw) as RawStoredSchedule;
+    const normalizedSettings = normalizeSettings(parsed.settings);
+    if (!localStorage.getItem(wallpaperTemplateMigrationKey)) {
+      if (!parsed.settings?.wallpaperStyle || parsed.settings.wallpaperStyle === "Soft Charcoal") {
+        normalizedSettings.wallpaperStyle = "School Palette";
+      }
+      localStorage.setItem(wallpaperTemplateMigrationKey, "1");
+    }
+    if (!localStorage.getItem(wallpaperDeviceSizeMigrationKey)) {
+      if (
+        !parsed.settings?.wallpaperSizeId ||
+        parsed.settings.wallpaperSizeId === "android-qhd"
+      ) {
+        normalizedSettings.wallpaperSizeId = "device-auto";
+      }
+      localStorage.setItem(wallpaperDeviceSizeMigrationKey, "1");
+    }
+
     return {
-      settings: normalizeSettings(parsed.settings),
+      settings: normalizedSettings,
       entries: Array.isArray(parsed.entries)
         ? parsed.entries.map(normalizeEntry)
         : sampleEntries,
@@ -214,17 +364,20 @@ function readStoredSchedule(): StoredSchedule | null {
 
 function normalizeSettings(settings?: Partial<ScheduleSettings>): ScheduleSettings {
   const normalized = { ...defaultSettings, ...settings };
+  const isLegacySettings = !settings?.schoolPaletteId;
 
   if (normalized.wallpaperTitle === "Weekly Class Schedule") {
     normalized.wallpaperTitle = "Class Schedule";
   }
 
-  if (normalized.schoolName === "SmartSched Local") {
-    normalized.schoolName = "University of Cebu";
+  if (!schoolPaletteIds.includes(normalized.schoolPaletteId as SchoolPaletteId)) {
+    normalized.schoolPaletteId = defaultSettings.schoolPaletteId;
   }
 
   if (!wallpaperSizePresets.some((preset) => preset.id === normalized.wallpaperSizeId)) {
     normalized.wallpaperSizeId = defaultSettings.wallpaperSizeId;
+  } else if (isLegacySettings && normalized.wallpaperSizeId === "android-qhd") {
+    normalized.wallpaperSizeId = "device-auto";
   }
 
   if (!isWallpaperStyle(normalized.wallpaperStyle)) {
@@ -318,11 +471,22 @@ function clampWallpaperDimension(value: number) {
   return Math.min(8000, Math.max(320, Math.round(value)));
 }
 
-function getWallpaperSizePreset(settings: ScheduleSettings): SelectedWallpaperSize {
+function getWallpaperSizePreset(
+  settings: ScheduleSettings,
+  detectedSize: { width: number; height: number },
+): SelectedWallpaperSize {
   const preset =
     wallpaperSizePresets.find((preset) => preset.id === settings.wallpaperSizeId) ??
     wallpaperSizePresets.find((preset) => preset.id === defaultSettings.wallpaperSizeId) ??
     wallpaperSizePresets[0];
+
+  if (settings.wallpaperSizeId === "device-auto") {
+    return {
+      ...preset,
+      width: detectedSize.width,
+      height: detectedSize.height,
+    };
+  }
 
   if (settings.wallpaperSizeId !== "custom") {
     return preset;
@@ -332,6 +496,25 @@ function getWallpaperSizePreset(settings: ScheduleSettings): SelectedWallpaperSi
     ...preset,
     width: settings.wallpaperCustomWidth,
     height: settings.wallpaperCustomHeight,
+  };
+}
+
+function getSchoolPalette(id: SchoolPaletteId) {
+  return schoolPalettes.find((palette) => palette.id === id) ?? schoolPalettes[0];
+}
+
+function detectDeviceWallpaperSize() {
+  if (typeof window === "undefined") {
+    return { width: 1080, height: 1920 };
+  }
+
+  const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+  const rawWidth = Math.round(window.screen.width * pixelRatio);
+  const rawHeight = Math.round(window.screen.height * pixelRatio);
+
+  return {
+    width: clampWallpaperDimension(rawWidth),
+    height: clampWallpaperDimension(rawHeight),
   };
 }
 
@@ -409,7 +592,14 @@ export function ScheduleApp() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [storageReady, setStorageReady] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [detectedDeviceSize, setDetectedDeviceSize] = useState({
+    width: 1080,
+    height: 1920,
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const addItemPanelRef = useRef<HTMLElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const startInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -431,10 +621,24 @@ export function ScheduleApp() {
       }
 
       setNotificationState(getNotificationPermission());
+      setDetectedDeviceSize(detectDeviceWallpaperSize());
       setStorageReady(true);
     }, 0);
 
     return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    function updateDetectedSize() {
+      setDetectedDeviceSize(detectDeviceWallpaperSize());
+    }
+
+    window.addEventListener("resize", updateDetectedSize);
+    window.addEventListener("orientationchange", updateDetectedSize);
+    return () => {
+      window.removeEventListener("resize", updateDetectedSize);
+      window.removeEventListener("orientationchange", updateDetectedSize);
+    };
   }, []);
 
   useEffect(() => {
@@ -478,8 +682,8 @@ export function ScheduleApp() {
     [sortedEntries],
   );
   const selectedWallpaperSize = useMemo(
-    () => getWallpaperSizePreset(settings),
-    [settings],
+    () => getWallpaperSizePreset(settings, detectedDeviceSize),
+    [detectedDeviceSize, settings],
   );
   const visibleOverviewDays = useMemo(
     () => getWallpaperDays(entries, settings),
@@ -490,6 +694,23 @@ export function ScheduleApp() {
     [editingId, form],
   );
   const conflict = hasTimeConflict(candidate, entries);
+  const schoolPalette = getSchoolPalette(settings.schoolPaletteId);
+  const brandStyle = {
+    "--primary": schoolPalette.uiPrimary,
+    "--primary-strong": schoolPalette.uiPrimaryStrong,
+    "--accent": schoolPalette.uiAccent,
+  } as React.CSSProperties;
+
+  function goToAddItem(field?: "title" | "start") {
+    addItemPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.setTimeout(() => {
+      if (field === "title") {
+        titleInputRef.current?.focus();
+      } else if (field === "start") {
+        startInputRef.current?.focus();
+      }
+    }, 260);
+  }
 
   function updateForm<K extends keyof Omit<ScheduleEntry, "id">>(
     key: K,
@@ -531,11 +752,13 @@ export function ScheduleApp() {
   function saveEntry() {
     if (!form.title.trim()) {
       setMessage("Enter a subject or activity title before saving.");
+      goToAddItem("title");
       return;
     }
 
     if (timeToMinutes(form.start) >= timeToMinutes(form.end)) {
       setMessage("Start time must be earlier than end time.");
+      goToAddItem("start");
       return;
     }
 
@@ -572,6 +795,7 @@ export function ScheduleApp() {
     setForm(rest);
     setSelectedDay(entry.days[0] ?? selectedDay);
     setMessage("");
+    goToAddItem("title");
   }
 
   function deleteEntry(id: string) {
@@ -672,7 +896,10 @@ export function ScheduleApp() {
   }
 
   return (
-    <main className="min-h-screen bg-background text-foreground transition-colors duration-200">
+    <main
+      className="min-h-screen overflow-x-hidden bg-background pb-24 text-foreground transition-colors duration-200"
+      style={brandStyle}
+    >
       <section className="border-b border-border/80 bg-gradient-to-br from-surface via-surface to-surface-2/80">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-5 py-8 lg:flex-row lg:items-end lg:justify-between lg:px-8">
           <div>
@@ -723,24 +950,36 @@ export function ScheduleApp() {
 
       <section className="mx-auto max-w-7xl px-5 py-6 lg:px-8">
         <div className="grid gap-4 sm:grid-cols-3">
-          <div className="neo-card p-5">
+          <button
+            type="button"
+            className="neo-card p-5 text-left transition hover:-translate-y-0.5"
+            onClick={() => goToAddItem("title")}
+          >
             <p className="text-sm font-semibold text-foreground">1. Add your classes</p>
             <p className="mt-2 text-sm leading-6 text-muted">
-              Enter subjects, rooms, times, and reminders. Save locally in your browser.
+              Tap here to jump directly to the required class fields.
             </p>
-          </div>
-          <div className="neo-card p-5">
+          </button>
+          <button
+            type="button"
+            className="neo-card p-5 text-left transition hover:-translate-y-0.5"
+            onClick={() => setPreviewOpen(true)}
+          >
             <p className="text-sm font-semibold text-foreground">2. Download wallpaper</p>
             <p className="mt-2 text-sm leading-6 text-muted">
-              Create a wallpaper sized for desktops, iPhones, and Android phones.
+              Choose a template and preview the automatic device size.
             </p>
-          </div>
-          <div className="neo-card p-5">
+          </button>
+          <button
+            type="button"
+            className="neo-card p-5 text-left transition hover:-translate-y-0.5"
+            onClick={exportCalendar}
+          >
             <p className="text-sm font-semibold text-foreground">3. Import alarms</p>
             <p className="mt-2 text-sm leading-6 text-muted">
               Download the `.ics` file and open it on your phone to add calendar reminders.
             </p>
-          </div>
+          </button>
         </div>
       </section>
 
@@ -749,24 +988,20 @@ export function ScheduleApp() {
           <Panel title="Schedule Details">
             <div className="grid gap-3">
               <TextInput
-                label="Owner name"
-                value={settings.ownerName}
-                onChange={(value) =>
-                  setSettings((current) => ({ ...current, ownerName: value }))
-                }
-              />
-              <TextInput
-                label="School name"
-                value={settings.schoolName}
-                onChange={(value) =>
-                  setSettings((current) => ({ ...current, schoolName: value }))
-                }
-              />
-              <TextInput
                 label="Wallpaper title"
                 value={settings.wallpaperTitle}
                 onChange={(value) =>
                   setSettings((current) => ({ ...current, wallpaperTitle: value }))
+                }
+              />
+              <SchoolPalettePicker
+                selectedId={settings.schoolPaletteId}
+                onChange={(palette) =>
+                  setSettings((current) => ({
+                    ...current,
+                    schoolPaletteId: palette.id,
+                    wallpaperStyle: "School Palette",
+                  }))
                 }
               />
               <button
@@ -780,15 +1015,20 @@ export function ScheduleApp() {
             </div>
           </Panel>
 
-          <Panel title={editingId ? "Edit Item" : "Add Item"}>
+          <Panel
+            title={editingId ? "Edit Item" : "Add Item"}
+            sectionRef={addItemPanelRef}
+          >
             <div className="grid gap-3">
               <TextInput
                 label="Subject or activity"
                 value={form.title}
                 onChange={(value) => updateForm("title", value)}
                 placeholder="Mathematics"
+                inputRef={titleInputRef}
+                required
               />
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <TextInput
                   label="Code"
                   value={form.code}
@@ -863,21 +1103,24 @@ export function ScheduleApp() {
                   })}
                 </div>
               </Field>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <TextInput
                   label="Start"
                   type="time"
                   value={form.start}
                   onChange={(value) => updateForm("start", value)}
+                  inputRef={startInputRef}
+                  required
                 />
                 <TextInput
                   label="End"
                   type="time"
                   value={form.end}
                   onChange={(value) => updateForm("end", value)}
+                  required
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <TextInput
                   label="Room"
                   value={form.room}
@@ -1058,6 +1301,14 @@ export function ScheduleApp() {
         </div>
       </section>
 
+      <FeedbackWidget
+        schoolPaletteId={settings.schoolPaletteId}
+        deviceSize={selectedWallpaperSize}
+        onEmailOpened={() =>
+          setMessage("Your email app was opened with the feedback report ready to send.")
+        }
+      />
+
       {previewOpen ? (
         <PhonePreviewDialog
           settings={settings}
@@ -1075,12 +1326,14 @@ export function ScheduleApp() {
 function Panel({
   title,
   children,
+  sectionRef,
 }: {
   title: string;
   children: React.ReactNode;
+  sectionRef?: React.RefObject<HTMLElement | null>;
 }) {
   return (
-    <section className="neo-card p-5">
+    <section ref={sectionRef} className="neo-card scroll-mt-4 p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-foreground">{title}</h2>
         <div className="h-2 w-16 rounded-full bg-gradient-to-r from-primary to-accent" />
@@ -1111,22 +1364,278 @@ function TextInput({
   onChange,
   type = "text",
   placeholder,
+  inputRef,
+  required = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
   placeholder?: string;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+  required?: boolean;
 }) {
   return (
     <Field label={label}>
       <input
+        ref={inputRef}
         className="field"
         type={type}
         value={value}
         placeholder={placeholder}
+        required={required}
+        aria-required={required}
         onChange={(event) => onChange(event.target.value)}
       />
+    </Field>
+  );
+}
+
+const feedbackKinds = {
+  report: "Problem report",
+  enhancement: "Enhancement request",
+  feedback: "General feedback",
+} as const;
+
+type FeedbackKind = keyof typeof feedbackKinds;
+
+function FeedbackWidget({
+  schoolPaletteId,
+  deviceSize,
+  onEmailOpened,
+}: {
+  schoolPaletteId: SchoolPaletteId;
+  deviceSize: SelectedWallpaperSize;
+  onEmailOpened: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<FeedbackKind>("report");
+  const [replyEmail, setReplyEmail] = useState("");
+  const [feedback, setFeedback] = useState("");
+  const [error, setError] = useState("");
+
+  function submitFeedback(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedFeedback = feedback.trim();
+    if (!trimmedFeedback) {
+      setError("Describe the problem, suggestion, or feedback before continuing.");
+      return;
+    }
+
+    const school = getSchoolPalette(schoolPaletteId);
+    const subject = `[SmartSched] ${feedbackKinds[kind]}`;
+    const body = [
+      `Type: ${feedbackKinds[kind]}`,
+      `School palette: ${school.name}`,
+      `Wallpaper size: ${formatWallpaperSize(deviceSize.width, deviceSize.height)}`,
+      replyEmail.trim() ? `Reply email: ${replyEmail.trim()}` : "Reply email: Not provided",
+      "",
+      "Message:",
+      trimmedFeedback.slice(0, 1600),
+      "",
+      `Page: ${window.location.href}`,
+      `Browser: ${navigator.userAgent.slice(0, 260)}`,
+    ].join("\n");
+
+    setError("");
+    setOpen(false);
+    setFeedback("");
+    onEmailOpened();
+    window.location.href = `mailto:danojosephclyde@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="fixed bottom-5 right-5 z-40 inline-flex min-h-12 items-center gap-2 rounded-full border-2 border-primary-strong bg-primary px-4 text-sm font-bold text-white shadow-[0_14px_34px_rgba(0,0,0,0.28)] transition hover:-translate-y-0.5 sm:bottom-6 sm:right-6"
+        onClick={() => setOpen(true)}
+      >
+        <MessageCircle aria-hidden="true" className="size-5" />
+        Report / Feedback
+      </button>
+    );
+  }
+
+  return (
+    <aside
+      className="neo-card fixed inset-x-4 bottom-4 z-40 max-h-[calc(100dvh-2rem)] overflow-y-auto p-4 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[390px] sm:p-5"
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="feedback-title"
+    >
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h2 id="feedback-title" className="text-lg font-semibold text-foreground">
+            Report or send feedback
+          </h2>
+          <p className="mt-1 text-xs leading-5 text-muted">
+            Your email app will open with the report addressed to the developer.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="secondary-button min-h-10 px-3"
+          aria-label="Close feedback form"
+          onClick={() => setOpen(false)}
+        >
+          <X aria-hidden="true" className="size-4" />
+        </button>
+      </div>
+
+      <form className="grid gap-3" onSubmit={submitFeedback}>
+        <Field label="Feedback type">
+          <select
+            className="field"
+            value={kind}
+            onChange={(event) => setKind(event.target.value as FeedbackKind)}
+          >
+            {Object.entries(feedbackKinds).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Your email (optional)">
+          <input
+            className="field"
+            type="email"
+            autoComplete="email"
+            placeholder="So the developer can reply"
+            value={replyEmail}
+            onChange={(event) => setReplyEmail(event.target.value)}
+          />
+        </Field>
+        <Field label="What happened or what should improve?">
+          <textarea
+            className="field min-h-32 resize-y py-3 leading-6"
+            required
+            maxLength={1600}
+            placeholder="Include the steps, expected result, or your enhancement idea."
+            value={feedback}
+            onChange={(event) => {
+              setFeedback(event.target.value);
+              if (error) {
+                setError("");
+              }
+            }}
+            onKeyDown={(event) => {
+              if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
+          />
+        </Field>
+        <div className="flex items-center justify-between gap-3 text-xs text-muted">
+          <span>{feedback.length}/1600</span>
+          <span>Ctrl/⌘ + Enter to continue</span>
+        </div>
+        {error ? (
+          <p className="rounded-lg border-2 border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <button className="primary-button" type="submit">
+          <Send aria-hidden="true" className="size-4" />
+          Continue to email
+        </button>
+        <p className="text-center text-xs leading-5 text-muted">
+          Sends to danojosephclyde@gmail.com after you confirm in your email app.
+        </p>
+      </form>
+    </aside>
+  );
+}
+
+function SchoolPalettePicker({
+  selectedId,
+  onChange,
+}: {
+  selectedId: SchoolPaletteId;
+  onChange: (palette: SchoolPalette) => void;
+}) {
+  return (
+    <Field label="Philippine school palette">
+      <select
+        className="field"
+        value={selectedId}
+        onChange={(event) =>
+          onChange(getSchoolPalette(event.target.value as SchoolPaletteId))
+        }
+      >
+        {(["State universities", "Private universities"] as const).map(
+          (category) => (
+            <optgroup key={category} label={category}>
+              {schoolPalettes
+                .filter((palette) => palette.category === category)
+                .map((palette) => (
+                  <option key={palette.id} value={palette.id}>
+                    {palette.name}
+                  </option>
+                ))}
+            </optgroup>
+          ),
+        )}
+      </select>
+      <div className="flex items-center gap-2" aria-label="Selected school colors">
+        {getSchoolPalette(selectedId).colors.map((color) => (
+          <span
+            key={color}
+            className="h-7 flex-1 rounded-lg border-2 border-border"
+            style={{ backgroundColor: color }}
+          />
+        ))}
+      </div>
+    </Field>
+  );
+}
+
+function WallpaperTemplatePicker({
+  value,
+  schoolPaletteId,
+  onChange,
+}: {
+  value: WallpaperStyle;
+  schoolPaletteId: SchoolPaletteId;
+  onChange: (style: WallpaperStyle) => void;
+}) {
+  return (
+    <Field label="Wallpaper template">
+      <div className="grid grid-cols-2 gap-2">
+        {wallpaperStyles.map((style) => {
+          const palette = getWallpaperPalette(
+            style,
+            getSchoolPalette(schoolPaletteId),
+          );
+          const selected = value === style;
+
+          return (
+            <button
+              key={style}
+              type="button"
+              aria-pressed={selected}
+              className={
+                selected
+                  ? "template-option border-primary ring-2 ring-primary/30"
+                  : "template-option border-border"
+              }
+              onClick={() => onChange(style)}
+            >
+              <span
+                className="template-preview"
+                style={{
+                  background: `linear-gradient(145deg, ${palette.headerStart}, ${palette.pageEnd})`,
+                }}
+              >
+                <span style={{ backgroundColor: palette.panel }} />
+                <span style={{ backgroundColor: palette.card }} />
+              </span>
+              <span>{style}</span>
+            </button>
+          );
+        })}
+      </div>
     </Field>
   );
 }
@@ -1142,24 +1651,13 @@ function WallpaperControls({
 }) {
   return (
     <div className="grid gap-3">
-      <Field label="Theme">
-        <select
-          className="field"
-          value={settings.wallpaperStyle}
-          onChange={(event) =>
-            setSettings((current) => ({
-              ...current,
-              wallpaperStyle: event.target.value as WallpaperStyle,
-            }))
-          }
-        >
-          {wallpaperStyles.map((style) => (
-            <option key={style} value={style}>
-              {style}
-            </option>
-          ))}
-        </select>
-      </Field>
+      <WallpaperTemplatePicker
+        value={settings.wallpaperStyle}
+        schoolPaletteId={settings.schoolPaletteId}
+        onChange={(wallpaperStyle) =>
+          setSettings((current) => ({ ...current, wallpaperStyle }))
+        }
+      />
       <Field label="Layout">
         <select
           className="field"
@@ -1195,7 +1693,9 @@ function WallpaperControls({
                 .filter((preset) => preset.group === group)
                 .map((preset) => (
                   <option key={preset.id} value={preset.id}>
-                    {preset.label} - {formatWallpaperSize(preset.width, preset.height)}
+                    {preset.id === "device-auto"
+                      ? preset.label
+                      : `${preset.label} - ${formatWallpaperSize(preset.width, preset.height)}`}
                   </option>
                 ))}
             </optgroup>
@@ -1246,6 +1746,7 @@ function WallpaperControls({
           </div>
         ) : null}
         <span className="text-xs leading-5 text-muted">
+          {settings.wallpaperSizeId === "device-auto" ? "Detected: " : ""}
           {sizePreset.group} / {formatWallpaperSize(sizePreset.width, sizePreset.height)}
         </span>
       </Field>
@@ -1267,18 +1768,6 @@ function WallpaperControls({
           ))}
         </select>
       </Field>
-      <RangeControl
-        label="Title size"
-        min={34}
-        max={86}
-        value={settings.wallpaperTitleSize}
-        onChange={(value) =>
-          setSettings((current) => ({
-            ...current,
-            wallpaperTitleSize: value,
-          }))
-        }
-      />
       <RangeControl
         label="Day label size"
         min={28}
@@ -1483,7 +1972,7 @@ function buildIcs(settings: ScheduleSettings, entries: ScheduleEntry[]) {
     "PRODID:-//SmartSched Local//Schedule Reminders//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-    `X-WR-CALNAME:${escapeIcs(settings.ownerName || "SmartSched")}`,
+    `X-WR-CALNAME:${escapeIcs(`${getSchoolPalette(settings.schoolPaletteId).name} Schedule`)}`,
   ];
 
   entries.forEach((entry) => {
@@ -1547,8 +2036,46 @@ function downloadBlob(filename: string, blob: Blob) {
   URL.revokeObjectURL(url);
 }
 
-function getWallpaperPalette(style: WallpaperStyle): WallpaperPalette {
+function hexToRgba(hex: string, alpha: number) {
+  const value = hex.replace("#", "");
+  const red = Number.parseInt(value.slice(0, 2), 16);
+  const green = Number.parseInt(value.slice(2, 4), 16);
+  const blue = Number.parseInt(value.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function shadeHex(hex: string, intensity: number) {
+  const value = hex.replace("#", "");
+  const channel = (start: number) =>
+    Math.round(Number.parseInt(value.slice(start, start + 2), 16) * intensity)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${channel(0)}${channel(2)}${channel(4)}`;
+}
+
+function getWallpaperPalette(
+  style: WallpaperStyle,
+  schoolPalette: SchoolPalette = schoolPalettes[0],
+): WallpaperPalette {
   const palettes: Record<WallpaperStyle, WallpaperPalette> = {
+    "School Palette": {
+      pageStart: schoolPalette.uiPrimary,
+      pageMid: schoolPalette.uiPrimaryStrong,
+      pageEnd: shadeHex(schoolPalette.uiAccent, 0.32),
+      headerStart: schoolPalette.uiPrimary,
+      headerMid: schoolPalette.uiPrimaryStrong,
+      headerEnd: shadeHex(schoolPalette.uiAccent, 0.42),
+      text: "#ffffff",
+      muted: "#d5e0e8",
+      soft: "#ffffff",
+      panel: hexToRgba(schoolPalette.uiPrimary, 0.72),
+      panelAlt: hexToRgba(schoolPalette.uiPrimaryStrong, 0.82),
+      line: schoolPalette.uiAccent,
+      emptyPanel: "rgba(255, 255, 255, 0.1)",
+      card: hexToRgba(schoolPalette.uiPrimaryStrong, 0.94),
+      time: hexToRgba(schoolPalette.uiAccent, 0.38),
+      grid: "rgba(255, 255, 255, 0.055)",
+    },
     "Soft Charcoal": {
       pageStart: "#20252c",
       pageMid: "#1f2630",
@@ -1652,22 +2179,16 @@ function getWallpaperLayoutProfile(
       spacingScale: 0.78,
       paddingScale: 0.84,
       fontScale: 0.92,
-      maxPhoneItems: 5,
-      maxDesktopItems: 6,
     },
     Balanced: {
       spacingScale: 1,
       paddingScale: 1,
       fontScale: 1,
-      maxPhoneItems: 4,
-      maxDesktopItems: 4,
     },
     Spacious: {
       spacingScale: 1.24,
       paddingScale: 1.18,
       fontScale: 1.1,
-      maxPhoneItems: 3,
-      maxDesktopItems: 3,
     },
   };
 
@@ -1692,15 +2213,31 @@ function getAutoFitScale(
   return clampNumber(base * 100 * tallBonus, 78, 112, 100) / 100;
 }
 
-function getVisibleCardCount(
-  availableHeight: number,
-  itemGap: number,
-  minItemHeight: number,
-  maxItems: number,
+function allocateRowHeights(
+  totalHeight: number,
+  gap: number,
+  demands: number[],
+  minimumRowHeight: number,
 ) {
-  return Math.max(
-    1,
-    Math.min(maxItems, Math.floor((availableHeight + itemGap) / (minItemHeight + itemGap))),
+  if (demands.length === 0) {
+    return [];
+  }
+
+  const usableHeight = Math.max(
+    demands.length,
+    totalHeight - gap * Math.max(0, demands.length - 1),
+  );
+  const baseHeight = Math.min(minimumRowHeight, usableHeight / demands.length);
+  const remainingHeight = Math.max(0, usableHeight - baseHeight * demands.length);
+  const extraDemands = demands.map((demand) => Math.max(0, demand - 1));
+  const totalExtraDemand = extraDemands.reduce((sum, demand) => sum + demand, 0);
+
+  if (totalExtraDemand === 0) {
+    return demands.map(() => usableHeight / demands.length);
+  }
+
+  return extraDemands.map(
+    (demand) => baseHeight + remainingHeight * (demand / totalExtraDemand),
   );
 }
 
@@ -1737,7 +2274,8 @@ function drawWallpaper(
   const headerHeight = Math.round(
     Math.min(height * 0.46, phoneClockSafeHeight + titleBandHeight),
   );
-  const palette = getWallpaperPalette(settings.wallpaperStyle);
+  const schoolPalette = getSchoolPalette(settings.schoolPaletteId);
+  const palette = getWallpaperPalette(settings.wallpaperStyle, schoolPalette);
   const {
     pageStart,
     pageMid,
@@ -1774,9 +2312,9 @@ function drawWallpaper(
   ctx.fillStyle = headerGradient;
   ctx.fillRect(0, 0, width, headerHeight);
 
-  ctx.fillStyle = "#9ca3af";
+  ctx.fillStyle = schoolPalette.colors[0];
   ctx.fillRect(0, headerHeight - 18, width, 10);
-  ctx.fillStyle = "#4b5563";
+  ctx.fillStyle = schoolPalette.colors[1];
   ctx.fillRect(0, headerHeight - 8, width, 8);
 
   ctx.fillStyle = palette.grid;
@@ -1794,9 +2332,12 @@ function drawWallpaper(
   const tableHeight = bottom - top;
   const rowGap = Math.max(6, sp(16));
   const wallpaperDays = getWallpaperDays(entries, settings);
-  const rowHeight =
-    (tableHeight - rowGap * (wallpaperDays.length - 1)) /
-    Math.max(1, wallpaperDays.length);
+  const rowHeights = allocateRowHeights(
+    tableHeight,
+    rowGap,
+    wallpaperDays.map((day) => Math.max(1, entriesForDay(entries, day).length)),
+    Math.max(sp(132), 88),
+  );
   const titleBaseline = Math.min(
     headerHeight - sp(76),
     phoneClockSafeHeight + titleSize + sp(24),
@@ -1813,7 +2354,7 @@ function drawWallpaper(
   ctx.font = `400 ${schoolSize}px Arial`;
   drawFittedText(
     ctx,
-    settings.schoolName || "University of Cebu",
+    schoolPalette.name,
     left + pad(20),
     schoolBaseline,
     s(820),
@@ -1861,7 +2402,11 @@ function drawWallpaper(
   ctx.shadowOffsetY = 0;
 
   wallpaperDays.forEach((day, index) => {
-    const y = top + index * (rowHeight + rowGap);
+    const rowHeight = rowHeights[index];
+    const y =
+      top +
+      rowHeights.slice(0, index).reduce((sum, height) => sum + height, 0) +
+      index * rowGap;
     const dayEntries = entriesForDay(entries, day);
     const rowColor = index % 2 === 0 ? panel : panelAlt;
     roundedRect(ctx, left, y, tableWidth, rowHeight, sp(28), rowColor);
@@ -1911,23 +2456,15 @@ function drawWallpaper(
       return;
     }
 
-    const itemGap = Math.max(5, sp(14));
-    const cardTextSize = Math.max(10, fs(settings.wallpaperCardTextSize));
-    const minItemHeight = Math.max(sp(54), cardTextSize * 2.25);
-    const fittingVisibleEntries = getVisibleCardCount(
-      scheduleHeight,
-      itemGap,
-      minItemHeight,
-      profile.maxPhoneItems,
+    const itemGap = Math.min(
+      Math.max(3, sp(14)),
+      scheduleHeight / Math.max(6, dayEntries.length * 5),
     );
-    const maxVisibleEntries = settings.wallpaperAutoFit
-      ? fittingVisibleEntries
-      : Math.min(profile.maxPhoneItems, fittingVisibleEntries);
-    const visibleEntries = dayEntries.slice(0, maxVisibleEntries);
+    const visibleEntries = dayEntries;
     const availableItemHeight =
       (scheduleHeight - itemGap * (visibleEntries.length - 1)) /
       visibleEntries.length;
-    const itemHeight = Math.max(minItemHeight, availableItemHeight);
+    const itemHeight = Math.max(1, availableItemHeight);
     const itemGroupHeight =
       itemHeight * visibleEntries.length + itemGap * (visibleEntries.length - 1);
     const itemStartY = scheduleY + (scheduleHeight - itemGroupHeight) / 2;
@@ -1948,15 +2485,6 @@ function drawWallpaper(
       );
     });
 
-    if (dayEntries.length > visibleEntries.length) {
-      ctx.fillStyle = muted;
-      ctx.font = `700 ${Math.max(8, fs(20))}px Arial`;
-      ctx.fillText(
-        `+${dayEntries.length - visibleEntries.length} more`,
-        scheduleX + scheduleWidth - s(108),
-        scheduleY + scheduleHeight - sp(18),
-      );
-    }
   });
 
   ctx.fillStyle = muted;
@@ -1973,7 +2501,8 @@ function drawDesktopWallpaper(
   settings: ScheduleSettings,
   entries: ScheduleEntry[],
 ) {
-  const palette = getWallpaperPalette(settings.wallpaperStyle);
+  const schoolPalette = getSchoolPalette(settings.schoolPaletteId);
+  const palette = getWallpaperPalette(settings.wallpaperStyle, schoolPalette);
   const profile = getWallpaperLayoutProfile(settings.wallpaperLayoutMode);
   const autoScale = getAutoFitScale(width, height, settings.wallpaperAutoFit, true);
   const scale = (width / 1920) * autoScale;
@@ -2002,6 +2531,10 @@ function drawDesktopWallpaper(
   pageGradient.addColorStop(1, pageEnd);
   ctx.fillStyle = pageGradient;
   ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = schoolPalette.colors[0];
+  ctx.fillRect(0, 0, width * 0.72, Math.max(6, s(10)));
+  ctx.fillStyle = schoolPalette.colors[1];
+  ctx.fillRect(width * 0.72, 0, width * 0.28, Math.max(6, s(10)));
 
   ctx.fillStyle = palette.grid;
   for (let x = 0; x < width; x += Math.max(44, s(82))) {
@@ -2023,7 +2556,7 @@ function drawDesktopWallpaper(
   ctx.font = `400 ${schoolSize}px Arial`;
   drawFittedText(
     ctx,
-    settings.schoolName || "University of Cebu",
+    schoolPalette.name,
     margin + pad(2),
     sp(154),
     width * 0.48,
@@ -2052,14 +2585,36 @@ function drawDesktopWallpaper(
   const boardHeight = boardBottom - boardTop;
   const wallpaperDays = getWallpaperDays(entries, settings);
   const rowGap = Math.max(8, sp(14));
-  const rowHeight =
-    (boardHeight - rowGap * (wallpaperDays.length - 1)) /
-    Math.max(1, wallpaperDays.length);
+  const rowWidth = width - margin * 2;
+  const dayWidth = Math.max(pad(142), rowWidth * 0.11);
+  const scheduleWidth = rowWidth - dayWidth - pad(48);
+  const itemGap = Math.max(8, sp(14));
+  const maxColumns = Math.max(
+    1,
+    Math.floor((scheduleWidth + itemGap) / (Math.max(s(250), 150) + itemGap)),
+  );
+  const rowHeights = allocateRowHeights(
+    boardHeight,
+    rowGap,
+    wallpaperDays.map((day) =>
+      Math.max(1, Math.ceil(entriesForDay(entries, day).length / maxColumns)),
+    ),
+    Math.max(sp(92), 68),
+  );
+  const cardColors: WallpaperCardColors = {
+    card,
+    time: palette.time,
+    title: soft,
+    detail: muted,
+  };
 
   wallpaperDays.forEach((day, index) => {
     const x = margin;
-    const y = boardTop + index * (rowHeight + rowGap);
-    const rowWidth = width - margin * 2;
+    const rowHeight = rowHeights[index];
+    const y =
+      boardTop +
+      rowHeights.slice(0, index).reduce((sum, height) => sum + height, 0) +
+      index * rowGap;
     const dayEntries = entriesForDay(entries, day);
     const rowColor = index % 2 === 0 ? panel : panelAlt;
 
@@ -2070,7 +2625,6 @@ function drawDesktopWallpaper(
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
 
-    const dayWidth = Math.max(pad(142), rowWidth * 0.11);
     ctx.fillStyle = silver;
     ctx.font = `700 ${Math.max(18, fs(settings.wallpaperDayLabelSize * 0.72))}px Arial`;
     drawFittedText(
@@ -2098,22 +2652,17 @@ function drawDesktopWallpaper(
 
     const scheduleX = x + dayWidth + pad(24);
     const scheduleY = y + sp(18);
-    const scheduleWidth = rowWidth - dayWidth - pad(48);
     const scheduleHeight = rowHeight - sp(36);
-    const itemGap = Math.max(8, sp(14));
-    const maxVisible = Math.max(
-      1,
-      Math.min(
-        profile.maxDesktopItems,
-        Math.floor((scheduleWidth + itemGap) / (s(300) + itemGap)),
-      ),
-    );
-    const visibleEntries = dayEntries.slice(0, maxVisible);
+    const visibleEntries = dayEntries;
+    const columnCount = Math.max(1, Math.min(maxColumns, visibleEntries.length));
+    const gridRowCount = Math.max(1, Math.ceil(visibleEntries.length / columnCount));
     const itemWidth =
-      (scheduleWidth - itemGap * Math.max(0, visibleEntries.length - 1)) /
-      Math.max(1, visibleEntries.length);
-    const itemHeight = Math.min(sp(112), scheduleHeight);
-    const itemY = scheduleY + (scheduleHeight - itemHeight) / 2;
+      (scheduleWidth - itemGap * Math.max(0, columnCount - 1)) / columnCount;
+    const itemHeight = Math.max(
+      1,
+      (scheduleHeight - itemGap * Math.max(0, gridRowCount - 1)) / gridRowCount,
+    );
+    const itemY = scheduleY;
 
     if (dayEntries.length === 0) {
       roundedRect(ctx, scheduleX, itemY, scheduleWidth, Math.max(sp(64), itemHeight), sp(16), palette.emptyPanel);
@@ -2124,44 +2673,23 @@ function drawDesktopWallpaper(
     }
 
     visibleEntries.forEach((entry, entryIndex) => {
-      const itemX = scheduleX + entryIndex * (itemWidth + itemGap);
-      roundedRect(ctx, itemX, itemY, itemWidth, itemHeight, sp(16), card);
-      ctx.fillStyle = getEntryAccentColor(entry);
-      ctx.fillRect(itemX, itemY, Math.max(4, pad(7)), itemHeight);
-      ctx.fillStyle = soft;
-      const cardTitleSize = Math.max(10, fs(settings.wallpaperCardTextSize * 0.62));
-      ctx.font = `700 ${cardTitleSize}px Arial`;
-      drawWrappedText(
+      const columnIndex = entryIndex % columnCount;
+      const gridRowIndex = Math.floor(entryIndex / columnCount);
+      const itemX = scheduleX + columnIndex * (itemWidth + itemGap);
+      const gridItemY = itemY + gridRowIndex * (itemHeight + itemGap);
+      drawReadableScheduleCard(
         ctx,
-        entry.title.toUpperCase(),
-        itemX + pad(18),
-        itemY + sp(30),
-        itemWidth - pad(36),
-        Math.max(13, cardTitleSize * 1.25),
-        2,
-      );
-      ctx.fillStyle = muted;
-      ctx.font = `700 ${Math.max(8, fs(settings.wallpaperCardTextSize * 0.46))}px Arial`;
-      drawFittedText(
-        ctx,
-        `${formatTime(entry.start)} - ${formatTime(entry.end)}`,
-        itemX + pad(18),
-        itemY + itemHeight - sp(18),
-        itemWidth - pad(36),
-        Math.max(8, fs(settings.wallpaperCardTextSize * 0.46)),
-        8,
+        entry,
+        itemX,
+        gridItemY,
+        itemWidth,
+        itemHeight,
+        scale * 0.72,
+        cardColors,
+        settings.wallpaperCardTextSize,
+        profile,
       );
     });
-
-    if (dayEntries.length > visibleEntries.length) {
-      ctx.fillStyle = muted;
-      ctx.font = `700 ${Math.max(9, fs(14))}px Arial`;
-      ctx.fillText(
-        `+${dayEntries.length - visibleEntries.length} more`,
-        scheduleX + scheduleWidth - s(104),
-        y + rowHeight - sp(18),
-      );
-    }
   });
 }
 
@@ -2189,15 +2717,20 @@ function drawReadableScheduleCard(
   const fs = (value: number) => value * fontScale;
   const timeWidth = Math.max(pad(116), width * 0.25);
   const contentX = x + timeWidth + pad(22);
-  const titleSize = Math.max(10, fs(cardTextSize));
-  const detailSize = Math.max(8, fs(Math.round(cardTextSize * 0.58)));
-  const timeSize = Math.max(8, fs(Math.round(cardTextSize * 0.62)));
-  const endTimeSize = Math.max(7, fs(Math.round(cardTextSize * 0.48)));
+  const compactCard = height < pad(64);
+  const titleSize = Math.max(
+    7,
+    Math.min(fs(cardTextSize), height * (compactCard ? 0.42 : 0.3)),
+  );
+  const detailSize = Math.max(7, Math.min(fs(Math.round(cardTextSize * 0.58)), height * 0.2));
+  const timeSize = Math.max(7, Math.min(fs(Math.round(cardTextSize * 0.62)), height * 0.22));
+  const endTimeSize = Math.max(7, Math.min(fs(Math.round(cardTextSize * 0.48)), height * 0.18));
+  const verticalPad = Math.min(pad(7), Math.max(2, height * 0.12));
 
   ctx.shadowColor = "rgba(0, 0, 0, 0.22)";
   ctx.shadowBlur = pad(10);
   ctx.shadowOffsetY = pad(3);
-  roundedRect(ctx, x, y, width, height, pad(16), colors.card);
+  roundedRect(ctx, x, y, width, height, Math.min(pad(16), height * 0.24), colors.card);
   ctx.shadowBlur = 0;
   ctx.shadowOffsetY = 0;
 
@@ -2207,10 +2740,10 @@ function drawReadableScheduleCard(
   roundedRect(
     ctx,
     x + pad(18),
-    y + pad(7),
+    y + verticalPad,
     timeWidth - pad(30),
-    height - pad(14),
-    pad(12),
+    Math.max(1, height - verticalPad * 2),
+    Math.min(pad(12), height * 0.2),
     colors.time,
   );
   ctx.fillStyle = colors.title;
@@ -2219,22 +2752,24 @@ function drawReadableScheduleCard(
     ctx,
     formatTime(entry.start),
     x + pad(30),
-    y + height / 2 - endTimeSize * 0.25,
+    y + height / 2 + (compactCard ? timeSize * 0.34 : -endTimeSize * 0.25),
     timeWidth - pad(54),
     timeSize,
     8,
   );
-  ctx.fillStyle = colors.detail;
-  ctx.font = `700 ${endTimeSize}px Arial`;
-  drawFittedText(
-    ctx,
-    formatTime(entry.end),
-    x + pad(30),
-    y + height / 2 + endTimeSize * 1.25,
-    timeWidth - pad(54),
-    endTimeSize,
-    7,
-  );
+  if (!compactCard) {
+    ctx.fillStyle = colors.detail;
+    ctx.font = `700 ${endTimeSize}px Arial`;
+    drawFittedText(
+      ctx,
+      formatTime(entry.end),
+      x + pad(30),
+      y + height / 2 + endTimeSize * 1.25,
+      timeWidth - pad(54),
+      endTimeSize,
+      7,
+    );
+  }
 
   ctx.fillStyle = colors.title;
   ctx.font = `700 ${titleSize}px Arial`;
@@ -2242,23 +2777,25 @@ function drawReadableScheduleCard(
     ctx,
     entry.title.toUpperCase(),
     contentX,
-    y + height / 2 - detailSize * 0.35,
+    y + height / 2 + (compactCard ? titleSize * 0.34 : -detailSize * 0.35),
     width - (contentX - x) - pad(18),
     titleSize,
     9,
   );
 
-  ctx.fillStyle = colors.detail;
-  ctx.font = `700 ${detailSize}px Arial`;
-  drawFittedText(
-    ctx,
-    [entry.code, entry.room].filter(Boolean).join(" - ") || entry.type,
-    contentX,
-    y + height / 2 + detailSize * 1.05,
-    width - (contentX - x) - pad(18),
-    detailSize,
-    8,
-  );
+  if (!compactCard) {
+    ctx.fillStyle = colors.detail;
+    ctx.font = `700 ${detailSize}px Arial`;
+    drawFittedText(
+      ctx,
+      [entry.code, entry.room].filter(Boolean).join(" - ") || entry.type,
+      contentX,
+      y + height / 2 + detailSize * 1.05,
+      width - (contentX - x) - pad(18),
+      detailSize,
+      7,
+    );
+  }
 }
 
 function roundedRect(
@@ -2291,41 +2828,6 @@ function drawFittedText(
     ctx.font = ctx.font.replace(/\d+px/, `${size}px`);
   }
   ctx.fillText(text || "-", x, y);
-}
-
-function drawWrappedText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  maxWidth: number,
-  lineHeight: number,
-  maxLines: number,
-) {
-  const words = text.split(" ").filter(Boolean);
-  const lines: string[] = [];
-  let line = "";
-
-  words.forEach((word) => {
-    const testLine = line ? `${line} ${word}` : word;
-    if (ctx.measureText(testLine).width <= maxWidth || !line) {
-      line = testLine;
-      return;
-    }
-
-    lines.push(line);
-    line = word;
-  });
-
-  if (line) {
-    lines.push(line);
-  }
-
-  lines.slice(0, maxLines).forEach((lineText, index) => {
-    const isLast = index === maxLines - 1 && lines.length > maxLines;
-    const finalText = isLast ? trimToWidth(ctx, `${lineText}...`, maxWidth) : lineText;
-    ctx.fillText(finalText, x, y + index * lineHeight);
-  });
 }
 
 function PhonePreviewDialog({
@@ -2465,16 +2967,4 @@ function WallpaperCanvasPreview({
       </div>
     </div>
   );
-}
-
-function trimToWidth(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-) {
-  let trimmed = text;
-  while (ctx.measureText(trimmed).width > maxWidth && trimmed.length > 4) {
-    trimmed = `${trimmed.slice(0, -4)}...`;
-  }
-  return trimmed;
 }
