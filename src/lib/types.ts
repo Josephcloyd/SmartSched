@@ -115,3 +115,19 @@ export type ScheduleSettings = {
   wallpaperShowEmptyWeekdays: boolean;
   wallpaperExportFormat: WallpaperExportFormat;
 };
+
+export type PublicHoliday = {
+  date: string;
+  name: string;
+  countryCode: string;
+};
+
+export type HolidayCalendar = {
+  enabled: boolean;
+  countryCode: string;
+  countryName: string;
+  subdivisionCode: string;
+  subdivisionName: string;
+  lastUpdated: string;
+  holidays: PublicHoliday[];
+};

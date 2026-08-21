@@ -54,7 +54,16 @@ body {
   transition: background-color 180ms ease, color 180ms ease;
 }
 
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 .neo-card {
+  min-width: 0;
+  max-width: 100%;
   border: 2px solid color-mix(in srgb, var(--border) 88%, var(--foreground) 12%);
   border-radius: 16px;
   background: var(--surface);
@@ -64,6 +73,8 @@ body {
 }
 
 .neo-inset {
+  min-width: 0;
+  max-width: 100%;
   border: 2px solid color-mix(in srgb, var(--border) 88%, var(--foreground) 12%);
   border-radius: 16px;
   background: var(--surface-2);
@@ -93,7 +104,13 @@ button,
 input,
 select,
 textarea {
+  min-width: 0;
+  max-width: 100%;
   font: inherit;
+}
+
+button {
+  touch-action: manipulation;
 }
 
 button:focus-visible,
@@ -107,11 +124,14 @@ textarea:focus-visible {
 
 .field {
   min-height: 44px;
+  min-width: 0;
+  max-width: 100%;
   width: 100%;
   border-radius: 10px;
   border: 2px solid color-mix(in srgb, var(--border) 86%, var(--foreground) 14%);
   background: var(--surface);
   padding: 0 12px;
+  font-size: 16px;
   color: var(--foreground);
   box-shadow:
     inset 5px 5px 10px var(--neo-soft-shadow),
@@ -213,6 +233,10 @@ textarea:focus-visible {
 }
 
 @media (max-width: 380px) {
+  .neo-card {
+    border-radius: 14px;
+  }
+
   .tool-button,
   .primary-button,
   .secondary-button {
