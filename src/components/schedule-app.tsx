@@ -1051,8 +1051,8 @@ export function ScheduleApp() {
         </div>
       </section>
 
-      <section className="mx-auto grid w-full min-w-0 max-w-7xl gap-5 px-5 py-6 lg:grid-cols-[390px_minmax(0,1fr)] lg:px-8">
-        <div className="order-2 min-w-0 space-y-5 lg:order-1">
+      <section className="mx-auto grid w-full min-w-0 max-w-7xl gap-5 overflow-hidden px-5 py-6 lg:grid-cols-[390px_minmax(0,1fr)] lg:px-8">
+        <div className="order-2 min-w-0 overflow-hidden space-y-5 lg:order-1">
           <Panel title="Schedule Details">
             <div className="grid gap-3">
               <TextInput
@@ -1337,7 +1337,7 @@ export function ScheduleApp() {
           </Panel>
         </div>
 
-        <div className="order-1 min-w-0 space-y-5 lg:order-2">
+        <div className="order-1 min-w-0 overflow-hidden space-y-5 lg:order-2">
           {holidayToday ? (
             <div className="neo-card border-primary/40 px-4 py-3" role="status">
               <div className="flex items-start gap-3">
@@ -1360,7 +1360,7 @@ export function ScheduleApp() {
             </div>
           ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
             <Metric label="Items" value={String(entries.length)} />
             <Metric
               label="Notification"
@@ -1392,7 +1392,7 @@ export function ScheduleApp() {
           </div>
 
           <Panel title="Weekly Schedule">
-            <div className="mb-4 flex w-full min-w-0 max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-2 [scrollbar-width:thin]">
+            <div className="-mx-4 mb-4 flex min-w-0 gap-2 overflow-x-auto overscroll-x-contain px-4 pb-2 sm:-mx-5 sm:px-5 [scrollbar-width:none]">
               {days.map((day) => (
                 <button
                   key={day}
@@ -1513,7 +1513,7 @@ function Panel({
   return (
     <section
       ref={sectionRef}
-      className="neo-card w-full min-w-0 overflow-hidden scroll-mt-4 p-4 sm:p-5"
+      className="neo-card w-full min-w-0 scroll-mt-4 p-4 sm:p-5"
     >
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-foreground">{title}</h2>
