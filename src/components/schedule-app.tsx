@@ -965,7 +965,7 @@ export function ScheduleApp() {
 
   return (
     <main
-      className="min-h-screen overflow-x-hidden bg-background pb-24 text-foreground transition-colors duration-200"
+      className="min-h-screen w-full max-w-full overflow-x-hidden bg-background pb-28 text-foreground transition-colors duration-200"
       style={brandStyle}
     >
       <section className="border-b border-border/80 bg-gradient-to-br from-surface via-surface to-surface-2/80">
@@ -1051,8 +1051,8 @@ export function ScheduleApp() {
         </div>
       </section>
 
-      <section className="mx-auto grid w-full max-w-7xl gap-5 px-5 py-6 lg:grid-cols-[390px_1fr] lg:px-8">
-        <div className="order-2 space-y-5 lg:order-1">
+      <section className="mx-auto grid w-full min-w-0 max-w-7xl gap-5 px-5 py-6 lg:grid-cols-[390px_minmax(0,1fr)] lg:px-8">
+        <div className="order-2 min-w-0 space-y-5 lg:order-1">
           <Panel title="Schedule Details">
             <div className="grid gap-3">
               <TextInput
@@ -1337,7 +1337,7 @@ export function ScheduleApp() {
           </Panel>
         </div>
 
-        <div className="order-1 space-y-5 lg:order-2">
+        <div className="order-1 min-w-0 space-y-5 lg:order-2">
           {holidayToday ? (
             <div className="neo-card border-primary/40 px-4 py-3" role="status">
               <div className="flex items-start gap-3">
@@ -1392,14 +1392,14 @@ export function ScheduleApp() {
           </div>
 
           <Panel title="Weekly Schedule">
-            <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+            <div className="mb-4 flex w-full min-w-0 max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-2 [scrollbar-width:thin]">
               {days.map((day) => (
                 <button
                   key={day}
                   className={
                     selectedDay === day
-                      ? "min-h-10 rounded-full bg-primary px-4 text-sm font-semibold text-white shadow-sm"
-                      : "min-h-10 rounded-full border border-border bg-surface px-4 text-sm font-semibold text-muted"
+                      ? "min-h-10 shrink-0 rounded-full bg-primary px-4 text-sm font-semibold text-white shadow-sm"
+                      : "min-h-10 shrink-0 rounded-full border border-border bg-surface px-4 text-sm font-semibold text-muted"
                   }
                   onClick={() => {
                     setSelectedDay(day);
@@ -1511,7 +1511,10 @@ function Panel({
   sectionRef?: React.RefObject<HTMLElement | null>;
 }) {
   return (
-    <section ref={sectionRef} className="neo-card scroll-mt-4 p-5">
+    <section
+      ref={sectionRef}
+      className="neo-card w-full min-w-0 overflow-hidden scroll-mt-4 p-4 sm:p-5"
+    >
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-foreground">{title}</h2>
         <div className="h-2 w-16 rounded-full bg-gradient-to-r from-primary to-accent" />
@@ -1626,11 +1629,12 @@ function FeedbackWidget({
     return (
       <button
         type="button"
-        className="fixed bottom-5 right-5 z-40 inline-flex min-h-12 items-center gap-2 rounded-full border-2 border-primary-strong bg-primary px-4 text-sm font-bold text-white shadow-[0_14px_34px_rgba(0,0,0,0.28)] transition hover:-translate-y-0.5 sm:bottom-6 sm:right-6"
+        className="fixed bottom-4 right-4 z-40 inline-flex size-12 items-center justify-center rounded-full border-2 border-primary-strong bg-primary p-0 text-sm font-bold text-white shadow-[0_14px_34px_rgba(0,0,0,0.28)] transition hover:-translate-y-0.5 sm:bottom-6 sm:right-6 sm:h-12 sm:w-auto sm:gap-2 sm:px-4"
+        aria-label="Report a problem or send feedback"
         onClick={() => setOpen(true)}
       >
         <MessageCircle aria-hidden="true" className="size-5" />
-        Report / Feedback
+        <span className="sr-only sm:not-sr-only">Report / Feedback</span>
       </button>
     );
   }
@@ -2075,8 +2079,8 @@ function ScheduleRow({
   onDelete: () => void;
 }) {
   return (
-    <article className="neo-card grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
-      <button className="text-left" onClick={onEdit}>
+    <article className="neo-card grid min-w-0 max-w-full gap-3 overflow-hidden p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <button className="min-w-0 max-w-full text-left" onClick={onEdit}>
         <div className="flex flex-wrap items-center gap-2">
           <span
             className="rounded px-2 py-1 text-xs font-semibold text-white"
@@ -2088,10 +2092,10 @@ function ScheduleRow({
             {formatTime(entry.start)} - {formatTime(entry.end)}
           </p>
         </div>
-        <h3 className="mt-2 text-lg font-semibold text-foreground">
+        <h3 className="mt-2 break-words text-lg font-semibold text-foreground">
           {entry.title}
         </h3>
-        <p className="mt-1 text-sm leading-6 text-muted">
+        <p className="mt-1 break-words text-sm leading-6 text-muted">
           {[entry.days.map((day) => day.slice(0, 3)).join("/"), entry.code, entry.room]
             .filter(Boolean)
             .join(" - ")}
@@ -2099,7 +2103,7 @@ function ScheduleRow({
       </button>
       <button
         aria-label={`Delete ${entry.title}`}
-        className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-3 text-sm font-semibold text-danger"
+        className="flex min-h-10 justify-self-end items-center justify-center gap-2 rounded-xl border border-border bg-surface px-3 text-sm font-semibold text-danger"
         onClick={onDelete}
       >
         <Trash2 aria-hidden="true" className="size-4" />
