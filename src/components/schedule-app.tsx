@@ -969,7 +969,7 @@ export function ScheduleApp() {
       style={brandStyle}
     >
       <section className="border-b border-border/80 bg-gradient-to-br from-surface via-surface to-surface-2/80">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-5 py-8 lg:flex-row lg:items-end lg:justify-between lg:px-8">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-3.5 py-6 sm:px-5 sm:py-8 lg:flex-row lg:items-end lg:justify-between lg:px-8">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-sm font-semibold uppercase tracking-[0.18em] text-primary">
               <span className="h-2 w-2 rounded-full bg-primary" />
@@ -1016,43 +1016,43 @@ export function ScheduleApp() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-5 py-6 lg:px-8">
-        <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0">
+      <section className="mx-auto w-full min-w-0 max-w-7xl px-3.5 py-4 sm:px-5 sm:py-6 lg:px-8">
+        <div className="grid gap-3 sm:grid-cols-3">
           <button
             type="button"
-            className="neo-card min-w-[240px] shrink-0 snap-start p-5 text-left transition hover:-translate-y-0.5 sm:min-w-0"
+            className="neo-card p-4 text-left transition hover:-translate-y-0.5 sm:p-5"
             onClick={() => goToAddItem("title")}
           >
             <p className="text-sm font-semibold text-foreground">1. Add your classes</p>
-            <p className="mt-2 text-sm leading-6 text-muted">
+            <p className="mt-1.5 text-xs leading-5 text-muted sm:text-sm sm:leading-6">
               Tap here to jump directly to the required class fields.
             </p>
           </button>
           <button
             type="button"
-            className="neo-card min-w-[240px] shrink-0 snap-start p-5 text-left transition hover:-translate-y-0.5 sm:min-w-0"
+            className="neo-card p-4 text-left transition hover:-translate-y-0.5 sm:p-5"
             onClick={() => setPreviewOpen(true)}
           >
             <p className="text-sm font-semibold text-foreground">2. Download wallpaper</p>
-            <p className="mt-2 text-sm leading-6 text-muted">
+            <p className="mt-1.5 text-xs leading-5 text-muted sm:text-sm sm:leading-6">
               Choose a template and preview the automatic device size.
             </p>
           </button>
           <button
             type="button"
-            className="neo-card min-w-[240px] shrink-0 snap-start p-5 text-left transition hover:-translate-y-0.5 sm:min-w-0"
+            className="neo-card p-4 text-left transition hover:-translate-y-0.5 sm:p-5"
             onClick={exportCalendar}
           >
             <p className="text-sm font-semibold text-foreground">3. Import alarms</p>
-            <p className="mt-2 text-sm leading-6 text-muted">
+            <p className="mt-1.5 text-xs leading-5 text-muted sm:text-sm sm:leading-6">
               Download the `.ics` file and open it on your phone to add calendar reminders.
             </p>
           </button>
         </div>
       </section>
 
-      <section className="mx-auto grid w-full min-w-0 max-w-7xl gap-5 overflow-hidden px-5 py-6 lg:grid-cols-[390px_minmax(0,1fr)] lg:px-8">
-        <div className="order-2 min-w-0 overflow-hidden space-y-5 lg:order-1">
+      <section className="mx-auto grid w-full min-w-0 max-w-7xl gap-4 px-3.5 py-4 sm:gap-5 sm:px-5 sm:py-6 lg:grid-cols-[390px_minmax(0,1fr)] lg:px-8">
+        <div className="order-2 w-full min-w-0 space-y-4 sm:space-y-5 lg:order-1">
           <Panel title="Schedule Details">
             <div className="grid gap-3">
               <TextInput
@@ -1223,7 +1223,7 @@ export function ScheduleApp() {
                 </div>
               </Field>
               <Field label="Days">
-                <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                <div className="grid w-full grid-cols-7 gap-1 sm:gap-2">
                   {days.map((day) => {
                     const selected = form.days.includes(day);
 
@@ -1233,8 +1233,8 @@ export function ScheduleApp() {
                         type="button"
                         className={
                           selected
-                            ? "min-h-11 rounded-xl bg-primary px-2 text-sm font-semibold text-white shadow-sm"
-                            : "min-h-11 rounded-xl border border-border bg-surface px-2 text-sm font-semibold text-muted"
+                            ? "flex min-h-9 items-center justify-center rounded-lg bg-primary px-0.5 py-1.5 text-xs font-semibold text-white shadow-sm sm:min-h-11 sm:rounded-xl sm:px-2 sm:text-sm"
+                            : "flex min-h-9 items-center justify-center rounded-lg border border-border bg-surface px-0.5 py-1.5 text-xs font-semibold text-muted hover:border-primary/50 sm:min-h-11 sm:rounded-xl sm:px-2 sm:text-sm"
                         }
                         aria-pressed={selected}
                         onClick={() => toggleFormDay(day)}
@@ -1337,12 +1337,12 @@ export function ScheduleApp() {
           </Panel>
         </div>
 
-        <div className="order-1 min-w-0 overflow-hidden space-y-5 lg:order-2">
+        <div className="order-1 w-full min-w-0 space-y-4 sm:space-y-5 lg:order-2">
           {holidayToday ? (
-            <div className="neo-card border-primary/40 px-4 py-3" role="status">
+            <div className="neo-card border-primary/40 px-3.5 py-3 sm:px-4" role="status">
               <div className="flex items-start gap-3">
-                <CalendarDays aria-hidden="true" className="mt-0.5 size-5 text-primary" />
-                <div>
+                <CalendarDays aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-primary" />
+                <div className="min-w-0">
                   <p className="text-sm font-semibold text-foreground">
                     {holidayToday.name}
                   </p>
@@ -1355,12 +1355,12 @@ export function ScheduleApp() {
           ) : null}
 
           {message ? (
-            <div className="neo-card px-4 py-3 text-sm text-foreground" role="status">
+            <div className="neo-card px-3.5 py-3 text-sm text-foreground sm:px-4" role="status">
               {message}
             </div>
           ) : null}
 
-          <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-4 xl:grid-cols-4">
             <Metric label="Items" value={String(entries.length)} />
             <Metric
               label="Notification"
@@ -1392,14 +1392,15 @@ export function ScheduleApp() {
           </div>
 
           <Panel title="Weekly Schedule">
-            <div className="-mx-4 mb-4 flex min-w-0 gap-2 overflow-x-auto overscroll-x-contain px-4 pb-2 sm:-mx-5 sm:px-5 [scrollbar-width:none]">
+            <div className="mb-4 grid w-full grid-cols-7 gap-1 sm:gap-2">
               {days.map((day) => (
                 <button
                   key={day}
+                  type="button"
                   className={
                     selectedDay === day
-                      ? "min-h-10 shrink-0 rounded-full bg-primary px-4 text-sm font-semibold text-white shadow-sm"
-                      : "min-h-10 shrink-0 rounded-full border border-border bg-surface px-4 text-sm font-semibold text-muted"
+                      ? "flex min-h-9 items-center justify-center rounded-lg bg-primary px-0.5 py-1.5 text-xs font-semibold text-white shadow-sm sm:min-h-10 sm:rounded-xl sm:px-3 sm:text-sm"
+                      : "flex min-h-9 items-center justify-center rounded-lg border border-border bg-surface px-0.5 py-1.5 text-xs font-semibold text-muted hover:border-primary/50 sm:min-h-10 sm:rounded-xl sm:px-3 sm:text-sm"
                   }
                   onClick={() => {
                     setSelectedDay(day);
@@ -1424,55 +1425,55 @@ export function ScheduleApp() {
                   />
                 ))
               ) : (
-                <div className="neo-inset p-6 text-center text-sm text-muted">
+                <div className="neo-inset p-5 text-center text-sm text-muted sm:p-6">
                   No schedule items for {selectedDay}.
                 </div>
               )}
             </div>
           </Panel>
 
-          <div className="grid gap-4">
+          <div className="grid gap-3 sm:gap-4">
             {visibleOverviewDays.map((day) => {
               const dayEntries = entriesForDay(entries, day);
 
               return (
                 <div
-                key={day}
-                className="neo-card grid gap-4 p-4 md:grid-cols-[130px_1fr] md:items-center"
-              >
-                <div className="flex items-center justify-between gap-3 md:block">
-                  <h3 className="text-base font-semibold text-foreground">{day}</h3>
-                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary md:mt-2 md:inline-flex">
-                    {dayEntries.length} item{dayEntries.length === 1 ? "" : "s"}
-                  </span>
+                  key={day}
+                  className="neo-card grid min-w-0 max-w-full gap-3 p-3.5 sm:gap-4 sm:p-4 md:grid-cols-[130px_1fr] md:items-center"
+                >
+                  <div className="flex items-center justify-between gap-3 md:block">
+                    <h3 className="text-sm font-semibold text-foreground sm:text-base">{day}</h3>
+                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-bold text-primary md:mt-2 md:inline-flex">
+                      {dayEntries.length} item{dayEntries.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <div className="grid min-w-0 max-w-full gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {dayEntries.length > 0 ? (
+                      dayEntries.map((entry) => (
+                        <button
+                          key={entry.id}
+                          className="neo-inset min-h-[100px] w-full min-w-0 border-l-4 p-3 text-left transition hover:-translate-y-0.5 sm:min-h-[110px]"
+                          style={{ borderLeftColor: getEntryAccentColor(entry) }}
+                          onClick={() => editEntry(entry)}
+                        >
+                          <p className="text-xs font-semibold text-muted">
+                            {formatTime(entry.start)} - {formatTime(entry.end)}
+                          </p>
+                          <p className="mt-1 break-words text-sm font-semibold text-foreground">
+                            {entry.title}
+                          </p>
+                          <p className="mt-1 break-words text-xs text-muted">
+                            {[entry.code, entry.room].filter(Boolean).join(" - ")}
+                          </p>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="neo-inset p-3.5 text-sm text-muted sm:p-4">
+                        No schedule items.
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {dayEntries.length > 0 ? (
-                    dayEntries.map((entry) => (
-                    <button
-                      key={entry.id}
-                      className="neo-inset min-h-[110px] w-full border-l-4 p-3 text-left transition hover:-translate-y-0.5"
-                      style={{ borderLeftColor: getEntryAccentColor(entry) }}
-                      onClick={() => editEntry(entry)}
-                    >
-                      <p className="text-xs font-semibold text-muted">
-                        {formatTime(entry.start)} - {formatTime(entry.end)}
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-foreground">
-                        {entry.title}
-                      </p>
-                      <p className="mt-1 text-xs text-muted">
-                        {[entry.code, entry.room].filter(Boolean).join(" - ")}
-                      </p>
-                    </button>
-                    ))
-                  ) : (
-                    <div className="neo-inset p-4 text-sm text-muted">
-                      No schedule items.
-                    </div>
-                  )}
-                </div>
-              </div>
               );
             })}
           </div>
@@ -1513,11 +1514,11 @@ function Panel({
   return (
     <section
       ref={sectionRef}
-      className="neo-card w-full min-w-0 scroll-mt-4 p-4 sm:p-5"
+      className="neo-card w-full min-w-0 max-w-full scroll-mt-4 p-3.5 sm:p-5"
     >
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-        <div className="h-2 w-16 rounded-full bg-gradient-to-r from-primary to-accent" />
+      <div className="mb-3.5 flex items-center justify-between gap-3 sm:mb-4">
+        <h2 className="text-base font-semibold text-foreground sm:text-lg">{title}</h2>
+        <div className="h-2 w-12 rounded-full bg-gradient-to-r from-primary to-accent sm:w-16" />
       </div>
       {children}
     </section>
@@ -2062,9 +2063,9 @@ function ToggleControl({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="neo-card p-4">
-      <p className="text-sm font-medium text-muted">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-foreground">{value}</p>
+    <div className="neo-card min-w-0 p-3 sm:p-4">
+      <p className="truncate text-xs font-medium text-muted sm:text-sm">{label}</p>
+      <p className="mt-1 truncate text-base font-semibold text-foreground sm:mt-2 sm:text-2xl">{value}</p>
     </div>
   );
 }
