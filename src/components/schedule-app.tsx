@@ -5,8 +5,10 @@ import {
   Bell,
   CalendarClock,
   Camera,
+  CalendarDays,
   FileDown,
   ImageDown,
+  MapPin,
   MessageCircle,
   MoonStar,
   Plus,
@@ -26,6 +28,7 @@ import {
   wallpaperSizePresets,
   wallpaperStyles,
   type DayName,
+  type HolidayCalendar,
   type ScheduleEntry,
   type ScheduleSettings,
   type ScheduleType,
@@ -36,6 +39,16 @@ import {
   type WallpaperSizeId,
   type WallpaperStyle,
 } from "@/lib/types";
+import {
+  defaultHolidayCalendar,
+  detectHolidayLocation,
+  fetchPublicHolidays,
+  formatLocalDateKey,
+  holidayCalendarNeedsRefresh,
+  holidayForDate,
+  normalizeHolidayCalendar,
+  upcomingHolidays,
+} from "@/lib/holidays";
 import {
   dayNameForDate,
   entriesForDay,
@@ -247,44 +260,7 @@ const blankEntry: Omit<ScheduleEntry, "id"> = {
   accentColor: "#256f53",
 };
 
-const sampleEntries: ScheduleEntry[] = [
-  {
-    id: uid(),
-    title: "Mathematics",
-    code: "MATH 101",
-    room: "Room 204",
-    days: ["Monday", "Wednesday", "Friday"],
-    start: "08:00",
-    end: "09:00",
-    type: "Class",
-    reminderMinutes: 15,
-    accentColor: "#256f53",
-  },
-  {
-    id: uid(),
-    title: "Science Lab",
-    code: "SCI 102",
-    room: "Lab 2",
-    days: ["Wednesday"],
-    start: "10:00",
-    end: "11:30",
-    type: "Laboratory",
-    reminderMinutes: 30,
-    accentColor: "#26727f",
-  },
-  {
-    id: uid(),
-    title: "English Quiz",
-    code: "ENG 101",
-    room: "Room 101",
-    days: ["Friday"],
-    start: "13:00",
-    end: "14:00",
-    type: "Quiz",
-    reminderMinutes: 60,
-    accentColor: "#7b5aa6",
-  },
-];
+const sampleEntries: ScheduleEntry[] = [];
 
 const typeStyle: Record<ScheduleType, string> = {
   Class: "#256f53",
@@ -309,6 +285,7 @@ const accentPresets = [
 type StoredSchedule = {
   settings: ScheduleSettings;
   entries: ScheduleEntry[];
+  holidayCalendar: HolidayCalendar;
 };
 
 type LegacyScheduleEntry = Omit<ScheduleEntry, "days" | "accentColor"> & {
@@ -320,6 +297,7 @@ type LegacyScheduleEntry = Omit<ScheduleEntry, "days" | "accentColor"> & {
 type RawStoredSchedule = {
   settings?: Partial<ScheduleSettings>;
   entries?: Array<ScheduleEntry | LegacyScheduleEntry>;
+  holidayCalendar?: Partial<HolidayCalendar>;
 };
 
 function readStoredSchedule(): StoredSchedule | null {
@@ -356,6 +334,7 @@ function readStoredSchedule(): StoredSchedule | null {
       entries: Array.isArray(parsed.entries)
         ? parsed.entries.map(normalizeEntry)
         : sampleEntries,
+      holidayCalendar: normalizeHolidayCalendar(parsed.holidayCalendar),
     };
   } catch {
     return null;
@@ -583,6 +562,10 @@ function getNotificationPermission(): NotificationPermission | "unsupported" {
 export function ScheduleApp() {
   const [settings, setSettings] = useState<ScheduleSettings>(defaultSettings);
   const [entries, setEntries] = useState<ScheduleEntry[]>(sampleEntries);
+  const [holidayCalendar, setHolidayCalendar] = useState<HolidayCalendar>(
+    defaultHolidayCalendar,
+  );
+  const [holidayLoading, setHolidayLoading] = useState(false);
   const [selectedDay, setSelectedDay] = useState<DayName>("Monday");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<Omit<ScheduleEntry, "id">>(blankEntry);
@@ -600,6 +583,7 @@ export function ScheduleApp() {
   const addItemPanelRef = useRef<HTMLElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const startInputRef = useRef<HTMLInputElement>(null);
+  const holidayRefreshAttemptedRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -611,6 +595,7 @@ export function ScheduleApp() {
       if (storedSchedule) {
         setSettings(storedSchedule.settings);
         setEntries(storedSchedule.entries);
+        setHolidayCalendar(storedSchedule.holidayCalendar);
       }
 
       const storedTheme = window.localStorage.getItem(themeKey);
@@ -646,8 +631,11 @@ export function ScheduleApp() {
       return;
     }
 
-    localStorage.setItem(storageKey, JSON.stringify({ settings, entries }));
-  }, [settings, entries, storageReady]);
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify({ settings, entries, holidayCalendar }),
+    );
+  }, [settings, entries, holidayCalendar, storageReady]);
 
   useEffect(() => {
     if (!storageReady) {
@@ -665,12 +653,38 @@ export function ScheduleApp() {
     }
 
     const timer = window.setInterval(() => {
-      checkDueNotifications(entries);
+      checkDueNotifications(entries, holidayCalendar);
     }, 30000);
 
-    checkDueNotifications(entries);
+    checkDueNotifications(entries, holidayCalendar);
     return () => window.clearInterval(timer);
-  }, [entries, notificationState]);
+  }, [entries, holidayCalendar, notificationState]);
+
+  useEffect(() => {
+    if (
+      !storageReady ||
+      holidayRefreshAttemptedRef.current ||
+      !holidayCalendarNeedsRefresh(holidayCalendar)
+    ) {
+      return;
+    }
+
+    holidayRefreshAttemptedRef.current = true;
+    void fetchPublicHolidays(
+      holidayCalendar.countryCode,
+      holidayCalendar.subdivisionCode,
+    )
+      .then((holidays) => {
+        setHolidayCalendar((current) => ({
+          ...current,
+          holidays,
+          lastUpdated: new Date().toISOString(),
+        }));
+      })
+      .catch(() => {
+        // Keep the locally cached dates when the app is offline or the service is unavailable.
+      });
+  }, [holidayCalendar, storageReady]);
 
   const sortedEntries = useMemo(() => sortEntries(entries), [entries]);
   const selectedEntries = useMemo(
@@ -688,6 +702,14 @@ export function ScheduleApp() {
   const visibleOverviewDays = useMemo(
     () => getWallpaperDays(entries, settings),
     [entries, settings],
+  );
+  const holidayToday = useMemo(
+    () => holidayForDate(holidayCalendar, new Date()),
+    [holidayCalendar],
+  );
+  const nextHolidays = useMemo(
+    () => upcomingHolidays(holidayCalendar),
+    [holidayCalendar],
   );
   const candidate = useMemo<ScheduleEntry>(
     () => ({ id: editingId ?? "new", ...form }),
@@ -806,6 +828,47 @@ export function ScheduleApp() {
     setMessage("Schedule item removed.");
   }
 
+  function clearAllEntries() {
+    if (entries.length === 0) {
+      return;
+    }
+    if (window.confirm("Are you sure you want to clear all schedule items?")) {
+      setEntries([]);
+      resetForm();
+      setMessage("All schedule items cleared.");
+    }
+  }
+
+  async function detectAndRecordHolidays() {
+    setHolidayLoading(true);
+    setMessage("Detecting your country and loading public holidays...");
+
+    try {
+      const location = await detectHolidayLocation();
+      const holidays = await fetchPublicHolidays(
+        location.countryCode,
+        location.subdivisionCode,
+      );
+      setHolidayCalendar({
+        enabled: true,
+        ...location,
+        lastUpdated: new Date().toISOString(),
+        holidays,
+      });
+      setMessage(
+        `${holidays.length} public holidays recorded for ${location.countryName}. In-app reminders are paused automatically; download a new calendar file to apply the exclusions there too.`,
+      );
+    } catch (error) {
+      const detail =
+        typeof error === "object" && error && "message" in error
+          ? String(error.message)
+          : "Allow location access and check your internet connection.";
+      setMessage(`Holiday detection was not completed. ${detail}`);
+    } finally {
+      setHolidayLoading(false);
+    }
+  }
+
   async function enableNotifications() {
     if (!("Notification" in window)) {
       setNotificationState("unsupported");
@@ -825,7 +888,7 @@ export function ScheduleApp() {
   function exportBackup() {
     downloadText(
       "smartsched-backup.json",
-      JSON.stringify({ settings, entries }, null, 2),
+      JSON.stringify({ settings, entries, holidayCalendar }, null, 2),
       "application/json",
     );
   }
@@ -845,6 +908,7 @@ export function ScheduleApp() {
         }
         setSettings(normalizeSettings(parsed.settings));
         setEntries(parsed.entries.map(normalizeEntry));
+        setHolidayCalendar(normalizeHolidayCalendar(parsed.holidayCalendar));
         setMessage("Backup imported and saved on this device.");
       } catch {
         setMessage("That backup file is not valid SmartSched data.");
@@ -856,9 +920,13 @@ export function ScheduleApp() {
   }
 
   function exportCalendar() {
-    const ics = buildIcs(settings, sortedEntries);
+    const ics = buildIcs(settings, sortedEntries, holidayCalendar);
     downloadText("smartsched-reminders.ics", ics, "text/calendar");
-    setMessage("Calendar file downloaded. Open it on your phone to add alarms.");
+    setMessage(
+      holidayCalendar.enabled && holidayCalendar.holidays.length > 0
+        ? "Calendar downloaded. Recorded public holidays are excluded from its alarms."
+        : "Calendar file downloaded. Open it on your phone to add alarms.",
+    );
   }
 
   async function downloadWallpaper(format = settings.wallpaperExportFormat) {
@@ -907,7 +975,7 @@ export function ScheduleApp() {
               <span className="h-2 w-2 rounded-full bg-primary" />
               SmartSched Local
             </div>
-            <h1 className="mt-4 text-3xl font-semibold text-foreground sm:text-4xl">
+            <h1 className="mt-4 text-2xl font-semibold text-foreground sm:text-3xl lg:text-4xl">
               Schedule, wallpaper, and reminders on this device.
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-muted">
@@ -916,7 +984,7 @@ export function ScheduleApp() {
               backup file.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
             <button
               className="tool-button"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -949,10 +1017,10 @@ export function ScheduleApp() {
       </section>
 
       <section className="mx-auto max-w-7xl px-5 py-6 lg:px-8">
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0">
           <button
             type="button"
-            className="neo-card p-5 text-left transition hover:-translate-y-0.5"
+            className="neo-card min-w-[240px] shrink-0 snap-start p-5 text-left transition hover:-translate-y-0.5 sm:min-w-0"
             onClick={() => goToAddItem("title")}
           >
             <p className="text-sm font-semibold text-foreground">1. Add your classes</p>
@@ -962,7 +1030,7 @@ export function ScheduleApp() {
           </button>
           <button
             type="button"
-            className="neo-card p-5 text-left transition hover:-translate-y-0.5"
+            className="neo-card min-w-[240px] shrink-0 snap-start p-5 text-left transition hover:-translate-y-0.5 sm:min-w-0"
             onClick={() => setPreviewOpen(true)}
           >
             <p className="text-sm font-semibold text-foreground">2. Download wallpaper</p>
@@ -972,7 +1040,7 @@ export function ScheduleApp() {
           </button>
           <button
             type="button"
-            className="neo-card p-5 text-left transition hover:-translate-y-0.5"
+            className="neo-card min-w-[240px] shrink-0 snap-start p-5 text-left transition hover:-translate-y-0.5 sm:min-w-0"
             onClick={exportCalendar}
           >
             <p className="text-sm font-semibold text-foreground">3. Import alarms</p>
@@ -984,7 +1052,7 @@ export function ScheduleApp() {
       </section>
 
       <section className="mx-auto grid w-full max-w-7xl gap-5 px-5 py-6 lg:grid-cols-[390px_1fr] lg:px-8">
-        <div className="space-y-5">
+        <div className="order-2 space-y-5 lg:order-1">
           <Panel title="Schedule Details">
             <div className="grid gap-3">
               <TextInput
@@ -1012,6 +1080,80 @@ export function ScheduleApp() {
                 <Camera aria-hidden="true" className="size-4" />
                 Customize wallpaper
               </button>
+            </div>
+          </Panel>
+
+          <Panel title="Holiday Protection">
+            <div className="grid gap-3">
+              <div className="neo-inset p-4">
+                <div className="flex items-start gap-3">
+                  <span className="rounded-xl bg-primary/12 p-2 text-primary">
+                    <MapPin aria-hidden="true" className="size-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground">
+                      {holidayCalendar.countryName || "Location not detected yet"}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-muted">
+                      {holidayCalendar.countryCode
+                        ? [
+                            holidayCalendar.subdivisionName,
+                            `${holidayCalendar.holidays.length} dates recorded`,
+                          ]
+                            .filter(Boolean)
+                            .join(" • ")
+                        : "Use your current location to record public holidays for this year and next year."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={holidayLoading}
+                onClick={detectAndRecordHolidays}
+              >
+                <MapPin aria-hidden="true" className="size-4" />
+                {holidayLoading
+                  ? "Detecting location..."
+                  : holidayCalendar.countryCode
+                    ? "Update location & holidays"
+                    : "Detect location & holidays"}
+              </button>
+
+              <ToggleControl
+                label="Pause reminders on public holidays"
+                checked={holidayCalendar.enabled}
+                onChange={(enabled) =>
+                  setHolidayCalendar((current) => ({ ...current, enabled }))
+                }
+              />
+
+              {nextHolidays.length > 0 ? (
+                <div className="grid gap-2">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">
+                    Upcoming recorded dates
+                  </p>
+                  {nextHolidays.map((holiday) => (
+                    <div
+                      key={`${holiday.date}-${holiday.name}`}
+                      className="rounded-xl border border-border bg-surface-2 px-3 py-2"
+                    >
+                      <p className="text-sm font-semibold text-foreground">
+                        {holiday.name}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {formatHolidayDate(holiday.date)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <p className="text-xs leading-5 text-muted">
+                Exact GPS coordinates are never saved. Country and region are stored only on this device. Holiday dates are provided by Nager.Date.
+              </p>
             </div>
           </Panel>
 
@@ -1170,6 +1312,16 @@ export function ScheduleApp() {
                 <Upload aria-hidden="true" className="size-4" />
                 Import backup
               </button>
+              {entries.length > 0 ? (
+                <button
+                  type="button"
+                  className="secondary-button text-danger hover:border-danger/60"
+                  onClick={clearAllEntries}
+                >
+                  <Trash2 aria-hidden="true" className="size-4" />
+                  Clear all items
+                </button>
+              ) : null}
               <input
                 ref={fileInputRef}
                 className="hidden"
@@ -1185,14 +1337,30 @@ export function ScheduleApp() {
           </Panel>
         </div>
 
-        <div className="space-y-5">
+        <div className="order-1 space-y-5 lg:order-2">
+          {holidayToday ? (
+            <div className="neo-card border-primary/40 px-4 py-3" role="status">
+              <div className="flex items-start gap-3">
+                <CalendarDays aria-hidden="true" className="mt-0.5 size-5 text-primary" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {holidayToday.name}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted">
+                    Today is a recorded public holiday. Schedule cards remain visible, but reminders are paused.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {message ? (
-            <div className="neo-card px-4 py-3 text-sm text-foreground">
+            <div className="neo-card px-4 py-3 text-sm text-foreground" role="status">
               {message}
             </div>
           ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Metric label="Items" value={String(entries.length)} />
             <Metric
               label="Notification"
@@ -1202,6 +1370,16 @@ export function ScheduleApp() {
                   : notificationState === "granted"
                     ? "On"
                     : "Off"
+              }
+            />
+            <Metric
+              label="Holidays"
+              value={
+                holidayCalendar.countryCode
+                  ? holidayCalendar.enabled
+                    ? "Protected"
+                    : "Paused off"
+                  : "Not set"
               }
             />
             <Metric
@@ -1235,7 +1413,7 @@ export function ScheduleApp() {
               ))}
             </div>
 
-            <div className="grid gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               {selectedEntries.length > 0 ? (
                 selectedEntries.map((entry) => (
                   <ScheduleRow
@@ -1931,12 +2109,28 @@ function ScheduleRow({
   );
 }
 
-function checkDueNotifications(entries: ScheduleEntry[]) {
+function formatHolidayDate(date: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(`${date}T00:00:00`));
+}
+
+function checkDueNotifications(
+  entries: ScheduleEntry[],
+  holidayCalendar: HolidayCalendar,
+) {
   if (!("Notification" in window) || Notification.permission !== "granted") {
     return;
   }
 
   const now = new Date();
+  if (holidayForDate(holidayCalendar, now)) {
+    return;
+  }
+
   const today = dayNameForDate(now);
 
   const notified = new Set(
@@ -1964,7 +2158,11 @@ function checkDueNotifications(entries: ScheduleEntry[]) {
   localStorage.setItem(notifiedKey, JSON.stringify([...notified].slice(-100)));
 }
 
-function buildIcs(settings: ScheduleSettings, entries: ScheduleEntry[]) {
+function buildIcs(
+  settings: ScheduleSettings,
+  entries: ScheduleEntry[],
+  holidayCalendar: HolidayCalendar,
+) {
   const nowStamp = toIcsDate(new Date());
   const lines = [
     "BEGIN:VCALENDAR",
@@ -1983,6 +2181,11 @@ function buildIcs(settings: ScheduleSettings, entries: ScheduleEntry[]) {
       startDate.setHours(startHour, startMinute, 0, 0);
       const endDate = new Date(startDate);
       endDate.setHours(endHour, endMinute, 0, 0);
+      const holidayExclusions = getHolidayExclusions(
+        startDate,
+        holidayCalendar,
+        24,
+      );
 
       lines.push(
         "BEGIN:VEVENT",
@@ -1991,6 +2194,9 @@ function buildIcs(settings: ScheduleSettings, entries: ScheduleEntry[]) {
         `DTSTART:${toIcsDate(startDate)}`,
         `DTEND:${toIcsDate(endDate)}`,
         "RRULE:FREQ=WEEKLY;COUNT=24",
+        ...(holidayExclusions.length > 0
+          ? [`EXDATE:${holidayExclusions.map(toIcsDate).join(",")}`]
+          : []),
         `SUMMARY:${escapeIcs([entry.code, entry.title].filter(Boolean).join(" "))}`,
         `LOCATION:${escapeIcs(entry.room)}`,
         `DESCRIPTION:${escapeIcs(day)}`,
@@ -2006,6 +2212,31 @@ function buildIcs(settings: ScheduleSettings, entries: ScheduleEntry[]) {
 
   lines.push("END:VCALENDAR");
   return `${lines.join("\r\n")}\r\n`;
+}
+
+function getHolidayExclusions(
+  firstOccurrence: Date,
+  holidayCalendar: HolidayCalendar,
+  occurrenceCount: number,
+) {
+  if (!holidayCalendar.enabled || holidayCalendar.holidays.length === 0) {
+    return [];
+  }
+
+  const holidayDates = new Set(
+    holidayCalendar.holidays.map((holiday) => holiday.date),
+  );
+  const exclusions: Date[] = [];
+
+  for (let index = 0; index < occurrenceCount; index += 1) {
+    const occurrence = new Date(firstOccurrence);
+    occurrence.setDate(firstOccurrence.getDate() + index * 7);
+    if (holidayDates.has(formatLocalDateKey(occurrence))) {
+      exclusions.push(occurrence);
+    }
+  }
+
+  return exclusions;
 }
 
 function toIcsDate(date: Date) {
@@ -2265,6 +2496,11 @@ function drawWallpaper(
   const pad = (value: number) => value * paddingScale;
   const fs = (value: number) => value * fontScale;
   const title = settings.wallpaperTitle || "Class Schedule";
+  const busiestDayCount = Math.max(
+    0,
+    ...days.map((day) => entriesForDay(entries, day).length),
+  );
+  const denseSchedule = busiestDayCount >= 5 || entries.length >= 18;
   const titleSize = Math.max(23, fs(settings.wallpaperTitleSize));
   const schoolSize = Math.max(13, fs(Math.round(settings.wallpaperTitleSize * 0.52)));
   const phoneClockSafeHeight = Math.round(
@@ -2328,15 +2564,16 @@ function drawWallpaper(
   const left = Math.max(20, pad(58));
   const top = headerHeight + sp(16);
   const tableWidth = width - left * 2;
-  const bottom = height - Math.max(sp(120), 76);
+  const bottom =
+    height - (denseSchedule ? Math.max(sp(94), 64) : Math.max(sp(120), 76));
   const tableHeight = bottom - top;
-  const rowGap = Math.max(6, sp(16));
+  const rowGap = denseSchedule ? Math.max(4, sp(9)) : Math.max(6, sp(16));
   const wallpaperDays = getWallpaperDays(entries, settings);
   const rowHeights = allocateRowHeights(
     tableHeight,
     rowGap,
     wallpaperDays.map((day) => Math.max(1, entriesForDay(entries, day).length)),
-    Math.max(sp(132), 88),
+    denseSchedule ? Math.max(sp(104), 72) : Math.max(sp(132), 88),
   );
   const titleBaseline = Math.min(
     headerHeight - sp(76),
@@ -2411,34 +2648,60 @@ function drawWallpaper(
     const rowColor = index % 2 === 0 ? panel : panelAlt;
     roundedRect(ctx, left, y, tableWidth, rowHeight, sp(28), rowColor);
 
+    const dayColumnWidth = denseSchedule ? pad(132) : pad(166);
+    const scheduleInset = denseSchedule ? pad(22) : pad(32);
+
     ctx.fillStyle = line;
-    ctx.fillRect(left + pad(166), y + sp(26), Math.max(1, s(2)), rowHeight - sp(52));
+    ctx.fillRect(
+      left + dayColumnWidth,
+      y + sp(denseSchedule ? 16 : 26),
+      Math.max(1, s(2)),
+      rowHeight - sp(denseSchedule ? 32 : 52),
+    );
 
     ctx.fillStyle = silver;
-    ctx.font = `700 ${Math.max(18, fs(settings.wallpaperDayLabelSize))}px Arial`;
-    ctx.fillText(day.slice(0, 3).toUpperCase(), left + pad(34), y + sp(78));
+    const dayLabelSize = Math.max(
+      16,
+      fs(settings.wallpaperDayLabelSize * (denseSchedule ? 0.82 : 1)),
+    );
+    ctx.font = `700 ${dayLabelSize}px Arial`;
+    ctx.fillText(
+      day.slice(0, 3).toUpperCase(),
+      left + pad(denseSchedule ? 22 : 34),
+      y + sp(denseSchedule ? 62 : 78),
+    );
     ctx.fillStyle = muted;
     const fullDaySize = Math.max(9, fs(Math.round(settings.wallpaperDayLabelSize * 0.42)));
     ctx.font = `700 ${fullDaySize}px Arial`;
-    drawFittedText(ctx, day.toUpperCase(), left + pad(38), y + sp(114), pad(96), fullDaySize, 8);
+    if (!denseSchedule) {
+      drawFittedText(ctx, day.toUpperCase(), left + pad(38), y + sp(114), pad(96), fullDaySize, 8);
+    }
 
-    roundedRect(ctx, left + pad(34), y + rowHeight - sp(72), pad(106), sp(40), sp(20), "rgba(255, 255, 255, 0.1)");
+    roundedRect(
+      ctx,
+      left + pad(denseSchedule ? 20 : 34),
+      y + rowHeight - sp(denseSchedule ? 54 : 72),
+      pad(denseSchedule ? 90 : 106),
+      sp(denseSchedule ? 32 : 40),
+      sp(20),
+      "rgba(255, 255, 255, 0.1)",
+    );
     ctx.fillStyle = silver;
     ctx.font = `700 ${Math.max(8, fs(20))}px Arial`;
     drawFittedText(
       ctx,
       `${dayEntries.length} ITEM${dayEntries.length === 1 ? "" : "S"}`,
-      left + pad(52),
-      y + rowHeight - sp(45),
-      pad(74),
+      left + pad(denseSchedule ? 34 : 52),
+      y + rowHeight - sp(denseSchedule ? 32 : 45),
+      pad(denseSchedule ? 62 : 74),
       Math.max(8, fs(20)),
       7,
     );
 
-    const scheduleX = left + pad(198);
-    const scheduleY = y + sp(22);
-    const scheduleWidth = tableWidth - pad(228);
-    const scheduleHeight = rowHeight - sp(44);
+    const scheduleX = left + dayColumnWidth + scheduleInset;
+    const scheduleY = y + sp(denseSchedule ? 12 : 22);
+    const scheduleWidth = tableWidth - dayColumnWidth - scheduleInset - pad(30);
+    const scheduleHeight = rowHeight - sp(denseSchedule ? 24 : 44);
 
     if (dayEntries.length === 0) {
       roundedRect(ctx, scheduleX, scheduleY, scheduleWidth, scheduleHeight, sp(22), emptyPanel);
@@ -2457,7 +2720,7 @@ function drawWallpaper(
     }
 
     const itemGap = Math.min(
-      Math.max(3, sp(14)),
+      Math.max(3, sp(denseSchedule ? 8 : 14)),
       scheduleHeight / Math.max(6, dayEntries.length * 5),
     );
     const visibleEntries = dayEntries;
@@ -2896,7 +3159,7 @@ function PhonePreviewDialog({
             </div>
           </div>
           <div className="grid gap-5 lg:grid-cols-[320px_1fr] lg:items-start">
-            <div className="neo-inset max-h-[78vh] overflow-y-auto p-4">
+            <div className="neo-inset p-4 lg:max-h-[78vh] lg:overflow-y-auto">
               <WallpaperControls
                 settings={settings}
                 setSettings={setSettings}

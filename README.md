@@ -10,6 +10,7 @@ SmartSched is now a local-first school schedule planner. It does not use Supabas
 - Download a high-definition `1440x2560` PNG schedule wallpaper
 - Export an `.ics` calendar file with reminder alarms
 - Enable browser notifications while the app is open or installed
+- Detect the current country/region and pause reminders on recorded public holidays
 - Export/import a JSON backup for moving the schedule to another browser or phone
 - Install as a PWA from supported browsers
 
@@ -18,6 +19,8 @@ SmartSched is now a local-first school schedule planner. It does not use Supabas
 A web app cannot silently set your phone wallpaper or native alarm. SmartSched can generate the HD wallpaper file and calendar alarm file. On your phone, open the downloaded PNG to set it as wallpaper, and open the `.ics` file to add the schedule alarms to your calendar.
 
 Browser notifications work only after permission is granted, and local reminder checks are most reliable while SmartSched is open or installed.
+
+Holiday protection asks for location permission only when you choose **Detect location & holidays**. Exact GPS coordinates are not saved. The detected country/region and downloaded public-holiday dates are stored locally and included in backups. Location detection generally requires HTTPS or localhost, and refreshing holiday dates requires an internet connection.
 
 ## Run On This Computer
 
