@@ -2,18 +2,20 @@
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Bell,
   CalendarClock,
-  Camera,
   CalendarDays,
+  Camera,
   FileDown,
   ImageDown,
+  LayoutGrid,
+  List,
   MapPin,
-  MessageCircle,
   MoonStar,
   Plus,
   Save,
-  Send,
+  Share2,
   Sun,
   Trash2,
   Upload,
@@ -21,23 +23,17 @@ import {
 } from "lucide-react";
 import {
   days,
-  schoolPaletteIds,
-  wallpaperExportFormats,
-  wallpaperLayoutModes,
   scheduleTypes,
   wallpaperSizePresets,
-  wallpaperStyles,
+  type AttendanceRecord,
+  type AttendanceStatus,
+  type CustomBreak,
   type DayName,
   type HolidayCalendar,
   type ScheduleEntry,
   type ScheduleSettings,
   type ScheduleType,
-  type SchoolPaletteId,
-  type WallpaperExportFormat,
-  type WallpaperLayoutMode,
-  type WallpaperSizeGroup,
-  type WallpaperSizeId,
-  type WallpaperStyle,
+  type ScheduleViewMode,
 } from "@/lib/types";
 import {
   defaultHolidayCalendar,
@@ -47,6 +43,7 @@ import {
   holidayCalendarNeedsRefresh,
   holidayForDate,
   normalizeHolidayCalendar,
+  popularCountries,
   upcomingHolidays,
 } from "@/lib/holidays";
 import {
@@ -59,12 +56,36 @@ import {
   timeToMinutes,
   uid,
 } from "@/lib/utils";
+import {
+  getSchoolPalette,
+} from "@/lib/school-palettes";
+import {
+  drawWallpaper,
+  formatWallpaperSize,
+  getWallpaperDays,
+  typeStyle,
+} from "@/lib/wallpaper-renderer";
+import {
+  Field,
+  Metric,
+  Panel,
+  TextInput,
+  ToggleControl,
+} from "@/components/ui/form-controls";
+import {
+  PhonePreviewDialog,
+  SchoolPalettePicker,
+  type SelectedWallpaperSize,
+} from "@/components/wallpaper/wallpaper-modal";
+import { ScheduleRow } from "@/components/schedule/schedule-row";
+import { TimetableGrid } from "@/components/schedule/timetable-grid";
+import { AttendanceTracker } from "@/components/attendance/attendance-tracker";
+import { FeedbackWidget } from "@/components/feedback-widget";
 
 const storageKey = "smartsched.local.schedule.v1";
+const attendanceStorageKey = "smartsched.local.attendance.v1";
 const notifiedKey = "smartsched.local.notified.v1";
 const themeKey = "smartsched.local.theme.v1";
-const wallpaperTemplateMigrationKey = "smartsched.local.school-template.v1";
-const wallpaperDeviceSizeMigrationKey = "smartsched.local.device-size.v1";
 
 const defaultSettings: ScheduleSettings = {
   schoolPaletteId: "university-of-cebu",
@@ -80,173 +101,8 @@ const defaultSettings: ScheduleSettings = {
   wallpaperAutoFit: true,
   wallpaperShowEmptyWeekdays: true,
   wallpaperExportFormat: "PNG",
+  wallpaperClockSafetyZone: true,
 };
-
-const wallpaperSizeGroups: WallpaperSizeGroup[] = ["Device", "Custom", "Desktop", "iPhone", "Android"];
-type WallpaperSizePreset = (typeof wallpaperSizePresets)[number];
-type SelectedWallpaperSize = Omit<WallpaperSizePreset, "width" | "height"> & {
-  width: number;
-  height: number;
-};
-type WallpaperCardColors = {
-  card: string;
-  time: string;
-  title: string;
-  detail: string;
-};
-type WallpaperPalette = {
-  pageStart: string;
-  pageMid: string;
-  pageEnd: string;
-  headerStart: string;
-  headerMid: string;
-  headerEnd: string;
-  text: string;
-  muted: string;
-  soft: string;
-  panel: string;
-  panelAlt: string;
-  line: string;
-  emptyPanel: string;
-  card: string;
-  time: string;
-  grid: string;
-};
-type WallpaperLayoutProfile = {
-  spacingScale: number;
-  paddingScale: number;
-  fontScale: number;
-};
-
-type SchoolPalette = {
-  id: SchoolPaletteId;
-  name: string;
-  category: "State universities" | "Private universities";
-  colors: readonly string[];
-  uiPrimary: string;
-  uiPrimaryStrong: string;
-  uiAccent: string;
-};
-
-const schoolPalettes: readonly SchoolPalette[] = [
-  {
-    id: "university-of-cebu",
-    name: "University of Cebu",
-    category: "Private universities",
-    colors: ["#0755a5", "#f5c400", "#ffffff"],
-    uiPrimary: "#0755a5",
-    uiPrimaryStrong: "#063b73",
-    uiAccent: "#d6a900",
-  },
-  {
-    id: "university-of-the-philippines",
-    name: "University of the Philippines",
-    category: "State universities",
-    colors: ["#7b1113", "#014421", "#ffffff"],
-    uiPrimary: "#7b1113",
-    uiPrimaryStrong: "#510b0d",
-    uiAccent: "#147045",
-  },
-  {
-    id: "cebu-normal-university",
-    name: "Cebu Normal University",
-    category: "State universities",
-    colors: ["#9d2235", "#f4b942", "#ffffff"],
-    uiPrimary: "#9d2235",
-    uiPrimaryStrong: "#661624",
-    uiAccent: "#bd8513",
-  },
-  {
-    id: "cebu-technological-university",
-    name: "Cebu Technological University",
-    category: "State universities",
-    colors: ["#007a5e", "#b21e35", "#f2c230", "#165c8d"],
-    uiPrimary: "#165c8d",
-    uiPrimaryStrong: "#0e3c5d",
-    uiAccent: "#b1840c",
-  },
-  {
-    id: "polytechnic-university-of-the-philippines",
-    name: "Polytechnic University of the Philippines",
-    category: "State universities",
-    colors: ["#800000", "#f6c344", "#ffffff"],
-    uiPrimary: "#800000",
-    uiPrimaryStrong: "#520000",
-    uiAccent: "#bd8910",
-  },
-  {
-    id: "mindanao-state-university",
-    name: "Mindanao State University",
-    category: "State universities",
-    colors: ["#7a1731", "#d6a928", "#ffffff"],
-    uiPrimary: "#7a1731",
-    uiPrimaryStrong: "#501020",
-    uiAccent: "#ac8110",
-  },
-  {
-    id: "west-visayas-state-university",
-    name: "West Visayas State University",
-    category: "State universities",
-    colors: ["#174a82", "#e3b341", "#ffffff"],
-    uiPrimary: "#174a82",
-    uiPrimaryStrong: "#0d3158",
-    uiAccent: "#b48514",
-  },
-  {
-    id: "bicol-university",
-    name: "Bicol University",
-    category: "State universities",
-    colors: ["#a61d2d", "#f0b323", "#ffffff"],
-    uiPrimary: "#a61d2d",
-    uiPrimaryStrong: "#6f131e",
-    uiAccent: "#b9820d",
-  },
-  {
-    id: "central-luzon-state-university",
-    name: "Central Luzon State University",
-    category: "State universities",
-    colors: ["#008000", "#ffd700", "#ffffff"],
-    uiPrimary: "#006b36",
-    uiPrimaryStrong: "#004724",
-    uiAccent: "#b59600",
-  },
-  {
-    id: "ateneo-de-manila",
-    name: "Ateneo de Manila University",
-    category: "Private universities",
-    colors: ["#003a70", "#f2b134", "#ffffff"],
-    uiPrimary: "#003a70",
-    uiPrimaryStrong: "#00264a",
-    uiAccent: "#c18412",
-  },
-  {
-    id: "de-la-salle-university",
-    name: "De La Salle University",
-    category: "Private universities",
-    colors: ["#00703c", "#ffffff", "#d4af37"],
-    uiPrimary: "#00703c",
-    uiPrimaryStrong: "#004b29",
-    uiAccent: "#a37d0c",
-  },
-  {
-    id: "university-of-santo-tomas",
-    name: "University of Santo Tomas",
-    category: "Private universities",
-    colors: ["#f4c430", "#1b1b1b", "#ffffff"],
-    uiPrimary: "#615018",
-    uiPrimaryStrong: "#332a0d",
-    uiAccent: "#d4a900",
-  },
-  {
-    id: "university-of-san-carlos",
-    name: "University of San Carlos",
-    category: "Private universities",
-    colors: ["#006633", "#f5c400", "#ffffff"],
-    uiPrimary: "#006633",
-    uiPrimaryStrong: "#004221",
-    uiAccent: "#c99f00",
-  },
-] as const;
 
 const blankEntry: Omit<ScheduleEntry, "id"> = {
   title: "",
@@ -258,29 +114,23 @@ const blankEntry: Omit<ScheduleEntry, "id"> = {
   type: "Class",
   reminderMinutes: 15,
   accentColor: "#256f53",
-};
-
-const sampleEntries: ScheduleEntry[] = [];
-
-const typeStyle: Record<ScheduleType, string> = {
-  Class: "#256f53",
-  Laboratory: "#26727f",
-  Quiz: "#7b5aa6",
-  Exam: "#b42318",
-  Assignment: "#b55d2c",
-  Event: "#3f5f9e",
+  maxAbsences: 3,
 };
 
 const accentPresets = [
   "#256f53",
-  "#26727f",
-  "#7b5aa6",
-  "#b42318",
+  "#165c8d",
+  "#7b1113",
+  "#9d2235",
+  "#00703c",
+  "#003a70",
+  "#7a1731",
   "#b55d2c",
-  "#3f5f9e",
-  "#64748b",
-  "#a16207",
-] as const;
+  "#b42318",
+  "#4f46e5",
+  "#0284c7",
+  "#d97706",
+];
 
 type StoredSchedule = {
   settings: ScheduleSettings;
@@ -288,16 +138,11 @@ type StoredSchedule = {
   holidayCalendar: HolidayCalendar;
 };
 
-type LegacyScheduleEntry = Omit<ScheduleEntry, "days" | "accentColor"> & {
-  day?: DayName;
-  days?: DayName[];
-  accentColor?: string;
-};
-
 type RawStoredSchedule = {
   settings?: Partial<ScheduleSettings>;
-  entries?: Array<ScheduleEntry | LegacyScheduleEntry>;
+  entries?: (ScheduleEntry | { day?: DayName; days?: DayName[] })[];
   holidayCalendar?: Partial<HolidayCalendar>;
+  attendanceRecords?: AttendanceRecord[];
 };
 
 function readStoredSchedule(): StoredSchedule | null {
@@ -312,28 +157,11 @@ function readStoredSchedule(): StoredSchedule | null {
     }
 
     const parsed = JSON.parse(raw) as RawStoredSchedule;
-    const normalizedSettings = normalizeSettings(parsed.settings);
-    if (!localStorage.getItem(wallpaperTemplateMigrationKey)) {
-      if (!parsed.settings?.wallpaperStyle || parsed.settings.wallpaperStyle === "Soft Charcoal") {
-        normalizedSettings.wallpaperStyle = "School Palette";
-      }
-      localStorage.setItem(wallpaperTemplateMigrationKey, "1");
-    }
-    if (!localStorage.getItem(wallpaperDeviceSizeMigrationKey)) {
-      if (
-        !parsed.settings?.wallpaperSizeId ||
-        parsed.settings.wallpaperSizeId === "android-qhd"
-      ) {
-        normalizedSettings.wallpaperSizeId = "device-auto";
-      }
-      localStorage.setItem(wallpaperDeviceSizeMigrationKey, "1");
-    }
-
     return {
-      settings: normalizedSettings,
+      settings: normalizeSettings(parsed.settings),
       entries: Array.isArray(parsed.entries)
         ? parsed.entries.map(normalizeEntry)
-        : sampleEntries,
+        : [],
       holidayCalendar: normalizeHolidayCalendar(parsed.holidayCalendar),
     };
   } catch {
@@ -342,229 +170,96 @@ function readStoredSchedule(): StoredSchedule | null {
 }
 
 function normalizeSettings(settings?: Partial<ScheduleSettings>): ScheduleSettings {
-  const normalized = { ...defaultSettings, ...settings };
-  const isLegacySettings = !settings?.schoolPaletteId;
-
-  if (normalized.wallpaperTitle === "Weekly Class Schedule") {
-    normalized.wallpaperTitle = "Class Schedule";
-  }
-
-  if (!schoolPaletteIds.includes(normalized.schoolPaletteId as SchoolPaletteId)) {
-    normalized.schoolPaletteId = defaultSettings.schoolPaletteId;
-  }
-
-  if (!wallpaperSizePresets.some((preset) => preset.id === normalized.wallpaperSizeId)) {
-    normalized.wallpaperSizeId = defaultSettings.wallpaperSizeId;
-  } else if (isLegacySettings && normalized.wallpaperSizeId === "android-qhd") {
-    normalized.wallpaperSizeId = "device-auto";
-  }
-
-  if (!isWallpaperStyle(normalized.wallpaperStyle)) {
-    normalized.wallpaperStyle = normalizeLegacyWallpaperStyle(
-      String(normalized.wallpaperStyle),
-    );
-  }
-
-  if (!isWallpaperLayoutMode(normalized.wallpaperLayoutMode)) {
-    normalized.wallpaperLayoutMode = defaultSettings.wallpaperLayoutMode;
-  }
-
-  if (!isWallpaperExportFormat(normalized.wallpaperExportFormat)) {
-    normalized.wallpaperExportFormat = defaultSettings.wallpaperExportFormat;
-  }
-
-  normalized.wallpaperCustomWidth = clampWallpaperDimension(
-    normalized.wallpaperCustomWidth,
-  );
-  normalized.wallpaperCustomHeight = clampWallpaperDimension(
-    normalized.wallpaperCustomHeight,
-  );
-  normalized.wallpaperTitleSize = clampNumber(
-    normalized.wallpaperTitleSize,
-    34,
-    86,
-    defaultSettings.wallpaperTitleSize,
-  );
-  normalized.wallpaperDayLabelSize = clampNumber(
-    normalized.wallpaperDayLabelSize,
-    28,
-    76,
-    defaultSettings.wallpaperDayLabelSize,
-  );
-  normalized.wallpaperCardTextSize = clampNumber(
-    normalized.wallpaperCardTextSize,
-    18,
-    42,
-    defaultSettings.wallpaperCardTextSize,
-  );
-  normalized.wallpaperAutoFit = Boolean(normalized.wallpaperAutoFit);
-  normalized.wallpaperShowEmptyWeekdays = Boolean(
-    normalized.wallpaperShowEmptyWeekdays,
-  );
-
-  return normalized;
-}
-
-function isWallpaperStyle(value: unknown): value is WallpaperStyle {
-  return wallpaperStyles.includes(value as WallpaperStyle);
-}
-
-function isWallpaperLayoutMode(value: unknown): value is WallpaperLayoutMode {
-  return wallpaperLayoutModes.includes(value as WallpaperLayoutMode);
-}
-
-function isWallpaperExportFormat(value: unknown): value is WallpaperExportFormat {
-  return wallpaperExportFormats.includes(value as WallpaperExportFormat);
-}
-
-function normalizeLegacyWallpaperStyle(value: string): WallpaperStyle {
-  if (value === "Light") {
-    return "Paper";
-  }
-
-  if (value === "Minimal") {
-    return "Sage";
-  }
-
-  return "Soft Charcoal";
-}
-
-function clampNumber(
-  value: number,
-  min: number,
-  max: number,
-  fallback: number,
-) {
-  if (!Number.isFinite(value)) {
-    return fallback;
-  }
-
-  return Math.min(max, Math.max(min, Math.round(value)));
-}
-
-function clampWallpaperDimension(value: number) {
-  if (!Number.isFinite(value)) {
-    return 1080;
-  }
-
-  return Math.min(8000, Math.max(320, Math.round(value)));
-}
-
-function getWallpaperSizePreset(
-  settings: ScheduleSettings,
-  detectedSize: { width: number; height: number },
-): SelectedWallpaperSize {
-  const preset =
-    wallpaperSizePresets.find((preset) => preset.id === settings.wallpaperSizeId) ??
-    wallpaperSizePresets.find((preset) => preset.id === defaultSettings.wallpaperSizeId) ??
-    wallpaperSizePresets[0];
-
-  if (settings.wallpaperSizeId === "device-auto") {
-    return {
-      ...preset,
-      width: detectedSize.width,
-      height: detectedSize.height,
-    };
-  }
-
-  if (settings.wallpaperSizeId !== "custom") {
-    return preset;
-  }
-
   return {
-    ...preset,
-    width: settings.wallpaperCustomWidth,
-    height: settings.wallpaperCustomHeight,
+    ...defaultSettings,
+    ...settings,
+    wallpaperClockSafetyZone: settings?.wallpaperClockSafetyZone ?? true,
   };
 }
 
-function getSchoolPalette(id: SchoolPaletteId) {
-  return schoolPalettes.find((palette) => palette.id === id) ?? schoolPalettes[0];
+function normalizeEntry(raw: unknown): ScheduleEntry {
+  const entry = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const legacyDay = typeof entry.day === "string" ? entry.day : undefined;
+  const entryDays = Array.isArray(entry.days)
+    ? entry.days
+    : legacyDay
+      ? [legacyDay]
+      : ["Monday"];
+
+  const validDays = entryDays.filter((day): day is DayName =>
+    typeof day === "string" && days.includes(day as DayName),
+  );
+
+  return {
+    id: typeof entry.id === "string" ? entry.id : uid(),
+    title: typeof entry.title === "string" ? entry.title : "Untitled",
+    code: typeof entry.code === "string" ? entry.code : "",
+    room: typeof entry.room === "string" ? entry.room : "",
+    days: validDays.length > 0 ? validDays : ["Monday"],
+    start: typeof entry.start === "string" ? entry.start : "08:00",
+    end: typeof entry.end === "string" ? entry.end : "09:00",
+    type: typeof entry.type === "string" && scheduleTypes.includes(entry.type as ScheduleType) ? (entry.type as ScheduleType) : "Class",
+    reminderMinutes:
+      typeof entry.reminderMinutes === "number" ? entry.reminderMinutes : 15,
+    accentColor:
+      typeof entry.accentColor === "string"
+        ? entry.accentColor
+        : typeStyle[entry.type as ScheduleType] || "#256f53",
+    maxAbsences:
+      typeof entry.maxAbsences === "number" ? Math.max(1, entry.maxAbsences) : 3,
+  };
 }
 
 function detectDeviceWallpaperSize() {
   if (typeof window === "undefined") {
     return { width: 1080, height: 1920 };
   }
-
   const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
-  const rawWidth = Math.round(window.screen.width * pixelRatio);
-  const rawHeight = Math.round(window.screen.height * pixelRatio);
-
   return {
-    width: clampWallpaperDimension(rawWidth),
-    height: clampWallpaperDimension(rawHeight),
+    width: Math.round(window.screen.width * pixelRatio) || 1080,
+    height: Math.round(window.screen.height * pixelRatio) || 1920,
   };
 }
 
-function formatWallpaperSize(width: number, height: number) {
-  return `${width} x ${height}`;
-}
-
-function getWallpaperDays(entries: ScheduleEntry[], settings: ScheduleSettings) {
-  return days.filter((day) => {
-    const isWeekend = day === "Saturday" || day === "Sunday";
-    const isEmpty = entriesForDay(entries, day).length === 0;
-
-    if (isWeekend) {
-      return !isEmpty;
-    }
-
-    return settings.wallpaperShowEmptyWeekdays || !isEmpty;
-  });
-}
-
-function normalizeEntry(entry: ScheduleEntry | LegacyScheduleEntry): ScheduleEntry {
-  const legacyDay = "day" in entry ? entry.day : undefined;
-  const entryDays = "days" in entry && Array.isArray(entry.days)
-    ? entry.days
-    : legacyDay
-      ? [legacyDay]
-      : ["Monday"];
-  const validDays = entryDays.filter((day): day is DayName =>
-    (days as readonly string[]).includes(day),
-  );
-
-  return {
-    id: entry.id,
-    title: entry.title,
-    code: entry.code,
-    room: entry.room,
-    days: validDays.length > 0 ? validDays : ["Monday"],
-    start: entry.start,
-    end: entry.end,
-    type: entry.type,
-    reminderMinutes: entry.reminderMinutes,
-    accentColor: normalizeAccentColor(entry.accentColor, entry.type),
-  };
-}
-
-function normalizeAccentColor(value: string | undefined, type: ScheduleType) {
-  if (value && /^#[0-9a-fA-F]{6}$/.test(value)) {
-    return value;
+function getWallpaperSizePreset(
+  settings: ScheduleSettings,
+  detectedDeviceSize: { width: number; height: number },
+): SelectedWallpaperSize {
+  if (settings.wallpaperSizeId === "device-auto") {
+    return {
+      id: "device-auto",
+      group: "Device",
+      label: "This device (automatic)",
+      width: detectedDeviceSize.width,
+      height: detectedDeviceSize.height,
+    };
   }
-
-  return typeStyle[type];
-}
-
-function getEntryAccentColor(entry: ScheduleEntry) {
-  return normalizeAccentColor(entry.accentColor, entry.type);
+  if (settings.wallpaperSizeId === "custom") {
+    return {
+      id: "custom",
+      group: "Custom",
+      label: "Custom size",
+      width: settings.wallpaperCustomWidth,
+      height: settings.wallpaperCustomHeight,
+    };
+  }
+  const preset = wallpaperSizePresets.find((item) => item.id === settings.wallpaperSizeId);
+  return preset ?? wallpaperSizePresets[2];
 }
 
 function getNotificationPermission(): NotificationPermission | "unsupported" {
   if (typeof window === "undefined" || !("Notification" in window)) {
     return "unsupported";
   }
-
   return Notification.permission;
 }
 
 export function ScheduleApp() {
   const [settings, setSettings] = useState<ScheduleSettings>(defaultSettings);
-  const [entries, setEntries] = useState<ScheduleEntry[]>(sampleEntries);
-  const [holidayCalendar, setHolidayCalendar] = useState<HolidayCalendar>(
-    defaultHolidayCalendar,
-  );
+  const [entries, setEntries] = useState<ScheduleEntry[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [viewMode, setViewMode] = useState<ScheduleViewMode>("day");
+  const [holidayCalendar, setHolidayCalendar] = useState<HolidayCalendar>(defaultHolidayCalendar);
   const [holidayLoading, setHolidayLoading] = useState(false);
   const [selectedDay, setSelectedDay] = useState<DayName>("Monday");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -575,16 +270,23 @@ export function ScheduleApp() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [storageReady, setStorageReady] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [customBreakName, setCustomBreakName] = useState("");
+  const [customBreakStart, setCustomBreakStart] = useState("");
+  const [customBreakEnd, setCustomBreakEnd] = useState("");
+  const [showAddBreak, setShowAddBreak] = useState(false);
+  const [canShare, setCanShare] = useState(false);
   const [detectedDeviceSize, setDetectedDeviceSize] = useState({
     width: 1080,
     height: 1920,
   });
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addItemPanelRef = useRef<HTMLElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const startInputRef = useRef<HTMLInputElement>(null);
   const holidayRefreshAttemptedRef = useRef(false);
 
+  // Initialize from localStorage
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -598,6 +300,18 @@ export function ScheduleApp() {
         setHolidayCalendar(storedSchedule.holidayCalendar);
       }
 
+      try {
+        const storedAttendance = localStorage.getItem(attendanceStorageKey);
+        if (storedAttendance) {
+          const parsed = JSON.parse(storedAttendance) as AttendanceRecord[];
+          if (Array.isArray(parsed)) {
+            setAttendanceRecords(parsed);
+          }
+        }
+      } catch {
+        // ignore
+      }
+
       const storedTheme = window.localStorage.getItem(themeKey);
       if (storedTheme === "dark" || storedTheme === "light") {
         setTheme(storedTheme);
@@ -607,17 +321,18 @@ export function ScheduleApp() {
 
       setNotificationState(getNotificationPermission());
       setDetectedDeviceSize(detectDeviceWallpaperSize());
+      setCanShare(typeof navigator !== "undefined" && typeof navigator.share === "function");
       setStorageReady(true);
     }, 0);
 
     return () => window.clearTimeout(timer);
   }, []);
 
+  // Update detected device size on resize
   useEffect(() => {
     function updateDetectedSize() {
       setDetectedDeviceSize(detectDeviceWallpaperSize());
     }
-
     window.addEventListener("resize", updateDetectedSize);
     window.addEventListener("orientationchange", updateDetectedSize);
     return () => {
@@ -626,40 +341,40 @@ export function ScheduleApp() {
     };
   }, []);
 
+  // Sync to localStorage
   useEffect(() => {
-    if (!storageReady) {
-      return;
-    }
-
+    if (!storageReady) return;
     localStorage.setItem(
       storageKey,
       JSON.stringify({ settings, entries, holidayCalendar }),
     );
   }, [settings, entries, holidayCalendar, storageReady]);
 
+  // Sync attendance to localStorage
   useEffect(() => {
-    if (!storageReady) {
-      return;
-    }
+    if (!storageReady) return;
+    localStorage.setItem(attendanceStorageKey, JSON.stringify(attendanceRecords));
+  }, [attendanceRecords, storageReady]);
 
+  // Sync theme
+  useEffect(() => {
+    if (!storageReady) return;
     document.documentElement.classList.toggle("dark", theme === "dark");
     document.documentElement.style.colorScheme = theme;
     window.localStorage.setItem(themeKey, theme);
   }, [theme, storageReady]);
 
+  // Notification loop
   useEffect(() => {
-    if (notificationState !== "granted") {
-      return;
-    }
-
+    if (notificationState !== "granted") return;
     const timer = window.setInterval(() => {
       checkDueNotifications(entries, holidayCalendar);
     }, 30000);
-
     checkDueNotifications(entries, holidayCalendar);
     return () => window.clearInterval(timer);
   }, [entries, holidayCalendar, notificationState]);
 
+  // Holiday refresh check
   useEffect(() => {
     if (
       !storageReady ||
@@ -681,19 +396,13 @@ export function ScheduleApp() {
           lastUpdated: new Date().toISOString(),
         }));
       })
-      .catch(() => {
-        // Keep the locally cached dates when the app is offline or the service is unavailable.
-      });
+      .catch(() => undefined);
   }, [holidayCalendar, storageReady]);
 
   const sortedEntries = useMemo(() => sortEntries(entries), [entries]);
   const selectedEntries = useMemo(
     () => entriesForDay(entries, selectedDay),
     [entries, selectedDay],
-  );
-  const previewEntries = useMemo(
-    () => sortedEntries,
-    [sortedEntries],
   );
   const selectedWallpaperSize = useMemo(
     () => getWallpaperSizePreset(settings, detectedDeviceSize),
@@ -711,12 +420,16 @@ export function ScheduleApp() {
     () => upcomingHolidays(holidayCalendar),
     [holidayCalendar],
   );
+
   const candidate = useMemo<ScheduleEntry>(
     () => ({ id: editingId ?? "new", ...form }),
     [editingId, form],
   );
   const conflict = hasTimeConflict(candidate, entries);
   const schoolPalette = getSchoolPalette(settings.schoolPaletteId);
+  const todayName = useMemo(() => dayNameForDate(new Date()), []);
+  const todayDateKey = useMemo(() => formatLocalDateKey(new Date()), []);
+
   const brandStyle = {
     "--primary": schoolPalette.uiPrimary,
     "--primary-strong": schoolPalette.uiPrimaryStrong,
@@ -763,12 +476,27 @@ export function ScheduleApp() {
       const nextDays = exists
         ? current.days.filter((item) => item !== day)
         : [...current.days, day];
-
       return {
         ...current,
         days: nextDays.length > 0 ? nextDays : [day],
       };
     });
+  }
+
+  // Quick Day Presets (Phase 3)
+  function applyDayPreset(preset: "MWF" | "TTH" | "Weekdays" | "All") {
+    if (preset === "MWF") {
+      setForm((c) => ({ ...c, days: ["Monday", "Wednesday", "Friday"] }));
+    } else if (preset === "TTH") {
+      setForm((c) => ({ ...c, days: ["Tuesday", "Thursday"] }));
+    } else if (preset === "Weekdays") {
+      setForm((c) => ({
+        ...c,
+        days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+      }));
+    } else if (preset === "All") {
+      setForm((c) => ({ ...c, days: [...days] }));
+    }
   }
 
   function saveEntry() {
@@ -795,6 +523,7 @@ export function ScheduleApp() {
       title: form.title.trim(),
       code: form.code.trim(),
       room: form.room.trim(),
+      maxAbsences: Math.max(1, form.maxAbsences || 3),
     };
 
     setEntries((current) =>
@@ -820,6 +549,17 @@ export function ScheduleApp() {
     goToAddItem("title");
   }
 
+  // Duplicate / Clone Class (Phase 3)
+  function duplicateEntry(entry: ScheduleEntry) {
+    const clone: ScheduleEntry = {
+      ...entry,
+      id: uid(),
+      title: `${entry.title} (Copy)`,
+    };
+    setEntries((current) => [...current, clone]);
+    setMessage(`Duplicated ${entry.title}.`);
+  }
+
   function deleteEntry(id: string) {
     setEntries((current) => current.filter((entry) => entry.id !== id));
     if (editingId === id) {
@@ -829,9 +569,7 @@ export function ScheduleApp() {
   }
 
   function clearAllEntries() {
-    if (entries.length === 0) {
-      return;
-    }
+    if (entries.length === 0) return;
     if (window.confirm("Are you sure you want to clear all schedule items?")) {
       setEntries([]);
       resetForm();
@@ -839,6 +577,38 @@ export function ScheduleApp() {
     }
   }
 
+  // Attendance Handlers (Phase 5)
+  function handleRecordAttendance(entryId: string, status: AttendanceStatus) {
+    setAttendanceRecords((current) => {
+      const existingIdx = current.findIndex(
+        (r) => r.entryId === entryId && r.date === todayDateKey,
+      );
+      if (existingIdx >= 0) {
+        const next = [...current];
+        next[existingIdx] = { ...next[existingIdx], status };
+        return next;
+      }
+      return [
+        ...current,
+        {
+          id: uid(),
+          entryId,
+          date: todayDateKey,
+          status,
+        },
+      ];
+    });
+    setMessage(`Recorded "${status}" for today's class.`);
+  }
+
+  function handleClearAttendance() {
+    if (window.confirm("Are you sure you want to reset all attendance logs?")) {
+      setAttendanceRecords([]);
+      setMessage("Attendance logs reset.");
+    }
+  }
+
+  // Holiday location detection (GPS)
   async function detectAndRecordHolidays() {
     setHolidayLoading(true);
     setMessage("Detecting your country and loading public holidays...");
@@ -854,19 +624,80 @@ export function ScheduleApp() {
         ...location,
         lastUpdated: new Date().toISOString(),
         holidays,
+        customBreaks: holidayCalendar.customBreaks || [],
       });
       setMessage(
-        `${holidays.length} public holidays recorded for ${location.countryName}. In-app reminders are paused automatically; download a new calendar file to apply the exclusions there too.`,
+        `${holidays.length} public holidays recorded for ${location.countryName}.`,
       );
     } catch (error) {
       const detail =
         typeof error === "object" && error && "message" in error
-          ? String(error.message)
-          : "Allow location access and check your internet connection.";
-      setMessage(`Holiday detection was not completed. ${detail}`);
+          ? String((error as { message: unknown }).message)
+          : "Allow location access or select your country manually below.";
+      setMessage(`Holiday detection not completed. ${detail}`);
     } finally {
       setHolidayLoading(false);
     }
+  }
+
+  // Manual Country Selection (Phase 7)
+  async function handleSelectCountry(countryCode: string) {
+    if (!countryCode) return;
+    const found = popularCountries.find((c) => c.code === countryCode);
+    if (!found) return;
+
+    setHolidayLoading(true);
+    setMessage(`Loading holidays for ${found.name}...`);
+    try {
+      const holidays = await fetchPublicHolidays(countryCode);
+      setHolidayCalendar((current) => ({
+        ...current,
+        enabled: true,
+        countryCode,
+        countryName: found.name,
+        subdivisionCode: "",
+        subdivisionName: "",
+        lastUpdated: new Date().toISOString(),
+        holidays,
+      }));
+      setMessage(`Loaded ${holidays.length} public holidays for ${found.name}.`);
+    } catch {
+      setMessage(`Could not load holidays for ${found.name}. Please check internet connection.`);
+    } finally {
+      setHolidayLoading(false);
+    }
+  }
+
+  // Custom School Breaks (Phase 7)
+  function handleAddCustomBreak(e: React.FormEvent) {
+    e.preventDefault();
+    if (!customBreakName.trim() || !customBreakStart || !customBreakEnd) {
+      setMessage("Please fill in break name, start date, and end date.");
+      return;
+    }
+    const newBreak: CustomBreak = {
+      id: uid(),
+      name: customBreakName.trim(),
+      startDate: customBreakStart,
+      endDate: customBreakEnd,
+    };
+    setHolidayCalendar((current) => ({
+      ...current,
+      customBreaks: [...(current.customBreaks || []), newBreak],
+    }));
+    setCustomBreakName("");
+    setCustomBreakStart("");
+    setCustomBreakEnd("");
+    setShowAddBreak(false);
+    setMessage(`Added school break: "${newBreak.name}". Alarms are paused during this period.`);
+  }
+
+  function handleRemoveCustomBreak(id: string) {
+    setHolidayCalendar((current) => ({
+      ...current,
+      customBreaks: (current.customBreaks || []).filter((b) => b.id !== id),
+    }));
+    setMessage("Removed school break.");
   }
 
   async function enableNotifications() {
@@ -888,16 +719,18 @@ export function ScheduleApp() {
   function exportBackup() {
     downloadText(
       "smartsched-backup.json",
-      JSON.stringify({ settings, entries, holidayCalendar }, null, 2),
+      JSON.stringify(
+        { settings, entries, holidayCalendar, attendanceRecords },
+        null,
+        2,
+      ),
       "application/json",
     );
   }
 
   function importBackup(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
+    if (!file) return;
 
     const reader = new FileReader();
     reader.onload = () => {
@@ -909,6 +742,9 @@ export function ScheduleApp() {
         setSettings(normalizeSettings(parsed.settings));
         setEntries(parsed.entries.map(normalizeEntry));
         setHolidayCalendar(normalizeHolidayCalendar(parsed.holidayCalendar));
+        if (Array.isArray(parsed.attendanceRecords)) {
+          setAttendanceRecords(parsed.attendanceRecords);
+        }
         setMessage("Backup imported and saved on this device.");
       } catch {
         setMessage("That backup file is not valid SmartSched data.");
@@ -923,8 +759,9 @@ export function ScheduleApp() {
     const ics = buildIcs(settings, sortedEntries, holidayCalendar);
     downloadText("smartsched-reminders.ics", ics, "text/calendar");
     setMessage(
-      holidayCalendar.enabled && holidayCalendar.holidays.length > 0
-        ? "Calendar downloaded. Recorded public holidays are excluded from its alarms."
+      holidayCalendar.enabled &&
+        (holidayCalendar.holidays.length > 0 || (holidayCalendar.customBreaks?.length ?? 0) > 0)
+        ? "Calendar downloaded. Recorded holidays and breaks are excluded from alarms."
         : "Calendar file downloaded. Open it on your phone to add alarms.",
     );
   }
@@ -934,9 +771,7 @@ export function ScheduleApp() {
     canvas.width = selectedWallpaperSize.width;
     canvas.height = selectedWallpaperSize.height;
     const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return;
-    }
+    if (!ctx) return;
 
     drawWallpaper(ctx, canvas.width, canvas.height, settings, sortedEntries);
 
@@ -944,9 +779,7 @@ export function ScheduleApp() {
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, mimeType, format === "JPG" ? 0.92 : 1),
     );
-    if (!blob) {
-      return;
-    }
+    if (!blob) return;
 
     const sizeLabel = formatWallpaperSize(
       selectedWallpaperSize.width,
@@ -959,33 +792,67 @@ export function ScheduleApp() {
       blob,
     );
     setMessage(
-      `${selectedWallpaperSize.label} ${format} wallpaper (${sizeLabel}, ${settings.wallpaperLayoutMode}) downloaded.`,
+      `${selectedWallpaperSize.label} ${format} wallpaper (${sizeLabel}) downloaded.`,
     );
+  }
+
+  // Web Share API support (Phase 6)
+  async function shareWallpaper() {
+    if (typeof navigator === "undefined" || !navigator.share) {
+      await downloadWallpaper();
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = selectedWallpaperSize.width;
+    canvas.height = selectedWallpaperSize.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    drawWallpaper(ctx, canvas.width, canvas.height, settings, sortedEntries);
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/png"),
+    );
+    if (!blob) return;
+
+    const file = new File([blob], "smartsched-schedule-wallpaper.png", {
+      type: "image/png",
+    });
+
+    try {
+      await navigator.share({
+        title: settings.wallpaperTitle || "SmartSched Wallpaper",
+        files: [file],
+      });
+      setMessage("Wallpaper shared successfully.");
+    } catch {
+      // User canceled share dialog or browser lacks file share support; fallback
+    }
   }
 
   return (
     <main
-      className="min-h-screen overflow-x-hidden bg-background pb-24 text-foreground transition-colors duration-200"
+      className="min-h-screen w-full max-w-full overflow-x-hidden bg-background pb-28 text-foreground transition-colors duration-200"
       style={brandStyle}
     >
+      {/* Top Header */}
       <section className="border-b border-border/80 bg-gradient-to-br from-surface via-surface to-surface-2/80">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-5 py-8 lg:flex-row lg:items-end lg:justify-between lg:px-8">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-3.5 py-6 sm:px-5 sm:py-8 lg:flex-row lg:items-end lg:justify-between lg:px-8">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-sm font-semibold uppercase tracking-[0.18em] text-primary">
               <span className="h-2 w-2 rounded-full bg-primary" />
               SmartSched Local
             </div>
             <h1 className="mt-4 text-2xl font-semibold text-foreground sm:text-3xl lg:text-4xl">
-              Schedule, wallpaper, and reminders on this device.
+              Schedule, Attendance & Wallpaper Planner
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-muted">
-              No Supabase and no online account. Your data is saved in this
-              browser, then exported as a phone wallpaper, calendar alarms, or a
-              backup file.
+              Local-first student scheduler with Philippine school palettes, daily attendance check-in, absence warnings, phone wallpaper exports, and calendar alarms.
             </p>
           </div>
           <div className="flex flex-wrap gap-1.5 sm:gap-2">
             <button
+              type="button"
               className="tool-button"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             >
@@ -996,19 +863,46 @@ export function ScheduleApp() {
               )}
               {theme === "dark" ? "Light" : "Dark"}
             </button>
-            <button className="tool-button" onClick={() => downloadWallpaper()}>
+            <button
+              type="button"
+              className="tool-button"
+              onClick={() => downloadWallpaper()}
+            >
               <ImageDown aria-hidden="true" className="size-4" />
               Wallpaper
             </button>
-            <button className="tool-button" onClick={() => setPreviewOpen(true)}>
+            <button
+              type="button"
+              className="tool-button"
+              onClick={() => setPreviewOpen(true)}
+            >
               <Camera aria-hidden="true" className="size-4" />
               Preview
             </button>
-            <button className="tool-button" onClick={exportCalendar}>
+            {canShare ? (
+              <button
+                type="button"
+                className="tool-button"
+                onClick={shareWallpaper}
+                title="Share wallpaper to lock screen or gallery"
+              >
+                <Share2 aria-hidden="true" className="size-4" />
+                Share
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="tool-button"
+              onClick={exportCalendar}
+            >
               <CalendarClock aria-hidden="true" className="size-4" />
               Alarms
             </button>
-            <button className="tool-button" onClick={enableNotifications}>
+            <button
+              type="button"
+              className="tool-button"
+              onClick={enableNotifications}
+            >
               <Bell aria-hidden="true" className="size-4" />
               Notify
             </button>
@@ -1016,44 +910,48 @@ export function ScheduleApp() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-5 py-6 lg:px-8">
-        <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0">
+      {/* Quick Action Cards */}
+      <section className="mx-auto w-full min-w-0 max-w-7xl px-3.5 py-4 sm:px-5 sm:py-6 lg:px-8">
+        <div className="grid gap-3 sm:grid-cols-3">
           <button
             type="button"
-            className="neo-card min-w-[240px] shrink-0 snap-start p-5 text-left transition hover:-translate-y-0.5 sm:min-w-0"
+            className="neo-card p-4 text-left transition hover:-translate-y-0.5 sm:p-5"
             onClick={() => goToAddItem("title")}
           >
             <p className="text-sm font-semibold text-foreground">1. Add your classes</p>
-            <p className="mt-2 text-sm leading-6 text-muted">
-              Tap here to jump directly to the required class fields.
+            <p className="mt-1.5 text-xs leading-5 text-muted sm:text-sm sm:leading-6">
+              Use MWF/TTH presets and set maximum allowed cuts per subject.
             </p>
           </button>
           <button
             type="button"
-            className="neo-card min-w-[240px] shrink-0 snap-start p-5 text-left transition hover:-translate-y-0.5 sm:min-w-0"
+            className="neo-card p-4 text-left transition hover:-translate-y-0.5 sm:p-5"
             onClick={() => setPreviewOpen(true)}
           >
             <p className="text-sm font-semibold text-foreground">2. Download wallpaper</p>
-            <p className="mt-2 text-sm leading-6 text-muted">
-              Choose a template and preview the automatic device size.
+            <p className="mt-1.5 text-xs leading-5 text-muted sm:text-sm sm:leading-6">
+              Pick your school palette, customize clock safe margin, and export HD wallpaper.
             </p>
           </button>
           <button
             type="button"
-            className="neo-card min-w-[240px] shrink-0 snap-start p-5 text-left transition hover:-translate-y-0.5 sm:min-w-0"
+            className="neo-card p-4 text-left transition hover:-translate-y-0.5 sm:p-5"
             onClick={exportCalendar}
           >
             <p className="text-sm font-semibold text-foreground">3. Import alarms</p>
-            <p className="mt-2 text-sm leading-6 text-muted">
-              Download the `.ics` file and open it on your phone to add calendar reminders.
+            <p className="mt-1.5 text-xs leading-5 text-muted sm:text-sm sm:leading-6">
+              Download the `.ics` file with automatic public holiday & break exclusions.
             </p>
           </button>
         </div>
       </section>
 
-      <section className="mx-auto grid w-full max-w-7xl gap-5 px-5 py-6 lg:grid-cols-[390px_1fr] lg:px-8">
-        <div className="order-2 space-y-5 lg:order-1">
-          <Panel title="Schedule Details">
+      {/* Main Grid Body */}
+      <section className="mx-auto grid w-full min-w-0 max-w-7xl gap-4 px-3.5 py-4 sm:gap-5 sm:px-5 sm:py-6 lg:grid-cols-[390px_minmax(0,1fr)] lg:px-8">
+        {/* Left Column: Form & Settings */}
+        <div className="order-2 w-full min-w-0 space-y-4 sm:space-y-5 lg:order-1">
+          {/* Schedule & School Palette Panel */}
+          <Panel title="Schedule & Palette">
             <div className="grid gap-3">
               <TextInput
                 label="Wallpaper title"
@@ -1083,82 +981,9 @@ export function ScheduleApp() {
             </div>
           </Panel>
 
-          <Panel title="Holiday Protection">
-            <div className="grid gap-3">
-              <div className="neo-inset p-4">
-                <div className="flex items-start gap-3">
-                  <span className="rounded-xl bg-primary/12 p-2 text-primary">
-                    <MapPin aria-hidden="true" className="size-5" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-foreground">
-                      {holidayCalendar.countryName || "Location not detected yet"}
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-muted">
-                      {holidayCalendar.countryCode
-                        ? [
-                            holidayCalendar.subdivisionName,
-                            `${holidayCalendar.holidays.length} dates recorded`,
-                          ]
-                            .filter(Boolean)
-                            .join(" • ")
-                        : "Use your current location to record public holidays for this year and next year."}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={holidayLoading}
-                onClick={detectAndRecordHolidays}
-              >
-                <MapPin aria-hidden="true" className="size-4" />
-                {holidayLoading
-                  ? "Detecting location..."
-                  : holidayCalendar.countryCode
-                    ? "Update location & holidays"
-                    : "Detect location & holidays"}
-              </button>
-
-              <ToggleControl
-                label="Pause reminders on public holidays"
-                checked={holidayCalendar.enabled}
-                onChange={(enabled) =>
-                  setHolidayCalendar((current) => ({ ...current, enabled }))
-                }
-              />
-
-              {nextHolidays.length > 0 ? (
-                <div className="grid gap-2">
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">
-                    Upcoming recorded dates
-                  </p>
-                  {nextHolidays.map((holiday) => (
-                    <div
-                      key={`${holiday.date}-${holiday.name}`}
-                      className="rounded-xl border border-border bg-surface-2 px-3 py-2"
-                    >
-                      <p className="text-sm font-semibold text-foreground">
-                        {holiday.name}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted">
-                        {formatHolidayDate(holiday.date)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              <p className="text-xs leading-5 text-muted">
-                Exact GPS coordinates are never saved. Country and region are stored only on this device. Holiday dates are provided by Nager.Date.
-              </p>
-            </div>
-          </Panel>
-
+          {/* Add / Edit Item Form */}
           <Panel
-            title={editingId ? "Edit Item" : "Add Item"}
+            title={editingId ? "Edit Class / Activity" : "Add Class / Activity"}
             sectionRef={addItemPanelRef}
           >
             <div className="grid gap-3">
@@ -1166,16 +991,17 @@ export function ScheduleApp() {
                 label="Subject or activity"
                 value={form.title}
                 onChange={(value) => updateForm("title", value)}
-                placeholder="Mathematics"
+                placeholder="e.g. Data Structures"
                 inputRef={titleInputRef}
                 required
               />
+
               <div className="grid gap-3 sm:grid-cols-2">
                 <TextInput
                   label="Code"
                   value={form.code}
                   onChange={(value) => updateForm("code", value)}
-                  placeholder="MATH 101"
+                  placeholder="e.g. CS 201"
                 />
                 <Field label="Type">
                   <select
@@ -1191,50 +1017,52 @@ export function ScheduleApp() {
                   </select>
                 </Field>
               </div>
-              <Field label="Accent color">
-                <div className="flex items-center gap-3">
-                  <input
-                    aria-label="Subject accent color"
-                    className="h-11 w-14 rounded-xl border border-border bg-surface p-1 shadow-[inset_5px_5px_10px_var(--neo-soft-shadow),inset_-5px_-5px_10px_var(--neo-highlight)]"
-                    type="color"
-                    value={form.accentColor}
-                    onChange={(event) =>
-                      updateForm("accentColor", event.target.value)
-                    }
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    {accentPresets.map((color) => (
-                      <button
-                        key={color}
-                        type="button"
-                        aria-label={`Use accent ${color}`}
-                        className="size-8 rounded-full border border-white/70 shadow-[4px_4px_10px_var(--neo-shadow),-4px_-4px_10px_var(--neo-highlight)] ring-offset-2 ring-offset-surface"
-                        style={{
-                          backgroundColor: color,
-                          boxShadow:
-                            form.accentColor === color
-                              ? `0 0 0 3px ${color}55`
-                              : undefined,
-                        }}
-                        onClick={() => updateForm("accentColor", color)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </Field>
+
+              {/* Day Selection with Quick Presets */}
               <Field label="Days">
-                <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                <div className="flex flex-wrap gap-1.5 pb-1 text-xs">
+                  <span className="self-center font-semibold text-muted">Presets:</span>
+                  <button
+                    type="button"
+                    className="rounded-md border border-border bg-surface-2 px-2 py-0.5 font-semibold text-foreground hover:border-primary"
+                    onClick={() => applyDayPreset("MWF")}
+                  >
+                    MWF
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-border bg-surface-2 px-2 py-0.5 font-semibold text-foreground hover:border-primary"
+                    onClick={() => applyDayPreset("TTH")}
+                  >
+                    TTH
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-border bg-surface-2 px-2 py-0.5 font-semibold text-foreground hover:border-primary"
+                    onClick={() => applyDayPreset("Weekdays")}
+                  >
+                    Mon–Fri
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-border bg-surface-2 px-2 py-0.5 font-semibold text-foreground hover:border-primary"
+                    onClick={() => applyDayPreset("All")}
+                  >
+                    All Days
+                  </button>
+                </div>
+
+                <div className="grid w-full grid-cols-7 gap-1 sm:gap-2">
                   {days.map((day) => {
                     const selected = form.days.includes(day);
-
                     return (
                       <button
                         key={day}
                         type="button"
                         className={
                           selected
-                            ? "min-h-11 rounded-xl bg-primary px-2 text-sm font-semibold text-white shadow-sm"
-                            : "min-h-11 rounded-xl border border-border bg-surface px-2 text-sm font-semibold text-muted"
+                            ? "flex min-h-9 items-center justify-center rounded-lg bg-primary px-0.5 py-1.5 text-xs font-semibold text-white shadow-sm sm:min-h-11 sm:rounded-xl sm:px-2 sm:text-sm"
+                            : "flex min-h-9 items-center justify-center rounded-lg border border-border bg-surface px-0.5 py-1.5 text-xs font-semibold text-muted hover:border-primary/50 sm:min-h-11 sm:rounded-xl sm:px-2 sm:text-sm"
                         }
                         aria-pressed={selected}
                         onClick={() => toggleFormDay(day)}
@@ -1245,6 +1073,8 @@ export function ScheduleApp() {
                   })}
                 </div>
               </Field>
+
+              {/* Time Pickers */}
               <div className="grid gap-3 sm:grid-cols-2">
                 <TextInput
                   label="Start"
@@ -1262,34 +1092,78 @@ export function ScheduleApp() {
                   required
                 />
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+
+              {/* Room, Reminder & Max Cuts */}
+              <div className="grid gap-3 sm:grid-cols-3">
                 <TextInput
                   label="Room"
                   value={form.room}
                   onChange={(value) => updateForm("room", value)}
-                  placeholder="Room 204"
+                  placeholder="Room 302"
                 />
                 <TextInput
-                  label="Reminder"
+                  label="Alarm (mins)"
                   type="number"
                   value={String(form.reminderMinutes)}
                   onChange={(value) =>
                     updateForm("reminderMinutes", Math.max(0, Number(value)))
                   }
                 />
+                <TextInput
+                  label="Max Cuts"
+                  type="number"
+                  placeholder="3"
+                  value={String(form.maxAbsences ?? 3)}
+                  onChange={(value) =>
+                    updateForm("maxAbsences", Math.max(1, Number(value) || 3))
+                  }
+                />
               </div>
 
+              {/* Accent color picker */}
+              <Field label="Accent color">
+                <div className="flex items-center gap-3">
+                  <input
+                    aria-label="Subject accent color"
+                    className="h-11 w-14 rounded-xl border border-border bg-surface p-1"
+                    type="color"
+                    value={form.accentColor}
+                    onChange={(event) =>
+                      updateForm("accentColor", event.target.value)
+                    }
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    {accentPresets.map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        aria-label={`Use accent ${color}`}
+                        className="size-8 rounded-full border border-white/70 shadow-sm"
+                        style={{
+                          backgroundColor: color,
+                          boxShadow:
+                            form.accentColor === color
+                              ? `0 0 0 3px ${color}55`
+                              : undefined,
+                        }}
+                        onClick={() => updateForm("accentColor", color)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </Field>
+
               {conflict ? (
-                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900">
-                  Time conflict on one of the selected days. You can still save
-                  it, but the wallpaper and calendar will show both items.
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
+                  <AlertTriangle aria-hidden="true" className="mr-1.5 inline size-4 text-amber-600 dark:text-amber-400" />
+                  Time conflict detected on selected day(s). Both items will still be saved and exported.
                 </p>
               ) : null}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 pt-1">
                 <button className="primary-button" onClick={saveEntry}>
                   <Save aria-hidden="true" className="size-4" />
-                  Save
+                  {editingId ? "Update" : "Save"}
                 </button>
                 <button className="secondary-button" onClick={() => resetForm()}>
                   <Plus aria-hidden="true" className="size-4" />
@@ -1299,7 +1173,169 @@ export function ScheduleApp() {
             </div>
           </Panel>
 
-          <Panel title="Local Files">
+          {/* Holiday & Break Protection */}
+          <Panel title="Holidays & School Breaks">
+            <div className="grid gap-3">
+              <div className="neo-inset p-4">
+                <div className="flex items-start gap-3">
+                  <span className="rounded-xl bg-primary/12 p-2 text-primary">
+                    <MapPin aria-hidden="true" className="size-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-foreground">
+                      {holidayCalendar.countryName || "Location / country not selected"}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-muted">
+                      {holidayCalendar.countryCode
+                        ? `${holidayCalendar.holidays.length} public holidays recorded`
+                        : "Select country or detect location to pause alarms on holidays."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Country dropdown selector (Phase 7) */}
+              <Field label="Select country manually (No GPS required)">
+                <select
+                  className="field"
+                  value={holidayCalendar.countryCode}
+                  onChange={(e) => handleSelectCountry(e.target.value)}
+                  disabled={holidayLoading}
+                >
+                  <option value="">-- Choose Country --</option>
+                  {popularCountries.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name} ({c.code})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={holidayLoading}
+                onClick={detectAndRecordHolidays}
+              >
+                <MapPin aria-hidden="true" className="size-4" />
+                {holidayLoading ? "Detecting location..." : "Auto-detect location"}
+              </button>
+
+              <ToggleControl
+                label="Pause reminders on holidays & breaks"
+                checked={holidayCalendar.enabled}
+                onChange={(enabled) =>
+                  setHolidayCalendar((current) => ({ ...current, enabled }))
+                }
+              />
+
+              {/* Custom School Breaks Section (Phase 7) */}
+              <div className="border-t border-border/80 pt-3">
+                <div className="flex items-center justify-between pb-2">
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted">
+                    Custom School Breaks
+                  </p>
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-primary hover:underline"
+                    onClick={() => setShowAddBreak(!showAddBreak)}
+                  >
+                    {showAddBreak ? "Cancel" : "+ Add break"}
+                  </button>
+                </div>
+
+                {showAddBreak ? (
+                  <form
+                    onSubmit={handleAddCustomBreak}
+                    className="grid gap-2 rounded-xl border border-border bg-surface-2 p-3 mb-2"
+                  >
+                    <input
+                      className="field text-xs py-1"
+                      placeholder="Break name (e.g. Sem Break, Intrams)"
+                      value={customBreakName}
+                      onChange={(e) => setCustomBreakName(e.target.value)}
+                      required
+                    />
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-[11px] text-muted">Start</span>
+                        <input
+                          type="date"
+                          className="field text-xs py-1"
+                          value={customBreakStart}
+                          onChange={(e) => setCustomBreakStart(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[11px] text-muted">End</span>
+                        <input
+                          type="date"
+                          className="field text-xs py-1"
+                          value={customBreakEnd}
+                          onChange={(e) => setCustomBreakEnd(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+                    <button type="submit" className="primary-button min-h-9 text-xs">
+                      Save Break
+                    </button>
+                  </form>
+                ) : null}
+
+                {(holidayCalendar.customBreaks || []).length > 0 ? (
+                  <div className="grid gap-1.5">
+                    {holidayCalendar.customBreaks?.map((b) => (
+                      <div
+                        key={b.id}
+                        className="flex items-center justify-between rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs"
+                      >
+                        <div>
+                          <p className="font-semibold text-foreground">{b.name}</p>
+                          <p className="text-[11px] text-muted">
+                            {b.startDate} to {b.endDate}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="text-danger hover:opacity-80"
+                          onClick={() => handleRemoveCustomBreak(b.id)}
+                          aria-label={`Remove break ${b.name}`}
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              {nextHolidays.length > 0 ? (
+                <div className="grid gap-2 pt-2">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">
+                    Upcoming holidays
+                  </p>
+                  {nextHolidays.map((holiday) => (
+                    <div
+                      key={`${holiday.date}-${holiday.name}`}
+                      className="rounded-xl border border-border bg-surface-2 px-3 py-2"
+                    >
+                      <p className="text-sm font-semibold text-foreground">
+                        {holiday.name}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {holiday.date}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </Panel>
+
+          {/* Local Backup Files */}
+          <Panel title="Local Backup & Transfer">
             <div className="grid gap-3">
               <button className="secondary-button" onClick={exportBackup}>
                 <FileDown aria-hidden="true" className="size-4" />
@@ -1319,7 +1355,7 @@ export function ScheduleApp() {
                   onClick={clearAllEntries}
                 >
                   <Trash2 aria-hidden="true" className="size-4" />
-                  Clear all items
+                  Clear all classes
                 </button>
               ) : null}
               <input
@@ -1330,24 +1366,24 @@ export function ScheduleApp() {
                 onChange={importBackup}
               />
               <p className="text-xs leading-5 text-muted">
-                Data stays in this browser. Use backup JSON before clearing
-                browser data or changing phones.
+                Stores your schedule, attendance logs, and custom breaks. Use before switching browsers or phones.
               </p>
             </div>
           </Panel>
         </div>
 
-        <div className="order-1 space-y-5 lg:order-2">
+        {/* Right Column: Attendance, Weekly Matrix, Overview */}
+        <div className="order-1 w-full min-w-0 space-y-4 sm:space-y-5 lg:order-2">
           {holidayToday ? (
-            <div className="neo-card border-primary/40 px-4 py-3" role="status">
+            <div className="neo-card border-primary/40 px-3.5 py-3 sm:px-4" role="status">
               <div className="flex items-start gap-3">
-                <CalendarDays aria-hidden="true" className="mt-0.5 size-5 text-primary" />
-                <div>
+                <CalendarDays aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-primary" />
+                <div className="min-w-0">
                   <p className="text-sm font-semibold text-foreground">
                     {holidayToday.name}
                   </p>
                   <p className="mt-1 text-xs leading-5 text-muted">
-                    Today is a recorded public holiday. Schedule cards remain visible, but reminders are paused.
+                    Today is an observed holiday or break. Alarms and notifications are paused.
                   </p>
                 </div>
               </div>
@@ -1355,13 +1391,14 @@ export function ScheduleApp() {
           ) : null}
 
           {message ? (
-            <div className="neo-card px-4 py-3 text-sm text-foreground" role="status">
+            <div className="neo-card px-3.5 py-3 text-sm text-foreground sm:px-4" role="status">
               {message}
             </div>
           ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric label="Items" value={String(entries.length)} />
+          {/* Key Metrics Bar */}
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-4 xl:grid-cols-4">
+            <Metric label="Classes" value={String(entries.length)} />
             <Metric
               label="Notification"
               value={
@@ -1373,14 +1410,8 @@ export function ScheduleApp() {
               }
             />
             <Metric
-              label="Holidays"
-              value={
-                holidayCalendar.countryCode
-                  ? holidayCalendar.enabled
-                    ? "Protected"
-                    : "Paused off"
-                  : "Not set"
-              }
+              label="Attendance Logs"
+              value={String(attendanceRecords.length)}
             />
             <Metric
               label="Wallpaper"
@@ -1391,733 +1422,179 @@ export function ScheduleApp() {
             />
           </div>
 
-          <Panel title="Weekly Schedule">
-            <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
-              {days.map((day) => (
-                <button
-                  key={day}
-                  className={
-                    selectedDay === day
-                      ? "min-h-10 rounded-full bg-primary px-4 text-sm font-semibold text-white shadow-sm"
-                      : "min-h-10 rounded-full border border-border bg-surface px-4 text-sm font-semibold text-muted"
-                  }
-                  onClick={() => {
-                    setSelectedDay(day);
-                    if (form.days.length === 1) {
-                      updateForm("days", [day]);
-                    }
-                  }}
-                >
-                  {day.slice(0, 3)}
-                </button>
-              ))}
-            </div>
+          {/* Attendance Tracker (Phase 5) */}
+          <AttendanceTracker
+            entries={entries}
+            records={attendanceRecords}
+            todayName={todayName}
+            todayDateKey={todayDateKey}
+            onRecordAttendance={handleRecordAttendance}
+            onClearAttendance={handleClearAttendance}
+          />
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              {selectedEntries.length > 0 ? (
-                selectedEntries.map((entry) => (
-                  <ScheduleRow
-                    key={entry.id}
-                    entry={entry}
-                    onDelete={() => deleteEntry(entry.id)}
-                    onEdit={() => editEntry(entry)}
-                  />
-                ))
-              ) : (
-                <div className="neo-inset p-6 text-center text-sm text-muted">
-                  No schedule items for {selectedDay}.
+          {/* Schedule View (Toggleable Day View / Timetable Grid View) */}
+          <Panel
+            title="Class Schedule"
+            action={
+              <div className="flex items-center gap-1 rounded-xl border border-border/70 bg-surface-2 p-1">
+                <button
+                  type="button"
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                    viewMode === "day"
+                      ? "bg-surface text-foreground shadow-xs font-bold"
+                      : "text-muted hover:text-foreground"
+                  }`}
+                  onClick={() => setViewMode("day")}
+                >
+                  <List className="size-3.5" />
+                  Day List
+                </button>
+                <button
+                  type="button"
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                    viewMode === "grid"
+                      ? "bg-surface text-foreground shadow-xs font-bold"
+                      : "text-muted hover:text-foreground"
+                  }`}
+                  onClick={() => setViewMode("grid")}
+                >
+                  <LayoutGrid className="size-3.5" />
+                  Timetable Grid
+                </button>
+              </div>
+            }
+          >
+            {viewMode === "grid" ? (
+              <TimetableGrid
+                entries={entries}
+                visibleDays={visibleOverviewDays}
+                onEditEntry={editEntry}
+              />
+            ) : (
+              <div>
+                {/* Day selector tabs */}
+                <div className="mb-4 grid w-full grid-cols-7 gap-1 sm:gap-2">
+                  {days.map((day) => (
+                    <button
+                      key={day}
+                      type="button"
+                      className={
+                        selectedDay === day
+                          ? "flex min-h-9 items-center justify-center rounded-lg bg-primary px-0.5 py-1.5 text-xs font-semibold text-white shadow-sm sm:min-h-10 sm:rounded-xl sm:px-3 sm:text-sm"
+                          : "flex min-h-9 items-center justify-center rounded-lg border border-border bg-surface px-0.5 py-1.5 text-xs font-semibold text-muted hover:border-primary/50 sm:min-h-10 sm:rounded-xl sm:px-3 sm:text-sm"
+                      }
+                      onClick={() => {
+                        setSelectedDay(day);
+                        if (form.days.length === 1) {
+                          updateForm("days", [day]);
+                        }
+                      }}
+                    >
+                      {day.slice(0, 3)}
+                    </button>
+                  ))}
                 </div>
-              )}
-            </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {selectedEntries.length > 0 ? (
+                    selectedEntries.map((entry) => (
+                      <ScheduleRow
+                        key={entry.id}
+                        entry={entry}
+                        allEntries={entries}
+                        onEdit={() => editEntry(entry)}
+                        onDuplicate={() => duplicateEntry(entry)}
+                        onDelete={() => deleteEntry(entry.id)}
+                      />
+                    ))
+                  ) : (
+                    <div className="neo-inset p-5 text-center text-sm text-muted sm:p-6 sm:col-span-2">
+                      No schedule items for {selectedDay}.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </Panel>
 
-          <div className="grid gap-4">
+          {/* Full Week Overview Cards */}
+          <div className="grid gap-3 sm:gap-4">
             {visibleOverviewDays.map((day) => {
               const dayEntries = entriesForDay(entries, day);
 
               return (
                 <div
-                key={day}
-                className="neo-card grid gap-4 p-4 md:grid-cols-[130px_1fr] md:items-center"
-              >
-                <div className="flex items-center justify-between gap-3 md:block">
-                  <h3 className="text-base font-semibold text-foreground">{day}</h3>
-                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary md:mt-2 md:inline-flex">
-                    {dayEntries.length} item{dayEntries.length === 1 ? "" : "s"}
-                  </span>
+                  key={day}
+                  className="neo-card grid min-w-0 max-w-full gap-3 p-3.5 sm:gap-4 sm:p-4 md:grid-cols-[130px_1fr] md:items-center"
+                >
+                  <div className="flex items-center justify-between gap-3 md:block">
+                    <h3 className="text-sm font-semibold text-foreground sm:text-base">
+                      {day}
+                    </h3>
+                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-bold text-primary md:mt-2 md:inline-flex">
+                      {dayEntries.length} item{dayEntries.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <div className="grid min-w-0 max-w-full gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {dayEntries.length > 0 ? (
+                      dayEntries.map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="rounded-xl border border-border/80 bg-surface-2 p-3 text-xs"
+                          style={{
+                            borderLeftWidth: "4px",
+                            borderLeftColor: entry.accentColor,
+                          }}
+                        >
+                          <div className="flex items-center justify-between gap-1 font-semibold text-muted">
+                            <span>{formatTime(entry.start)} – {formatTime(entry.end)}</span>
+                            <span>{entry.type}</span>
+                          </div>
+                          <p className="mt-1 font-semibold text-foreground text-sm truncate">
+                            {entry.title}
+                          </p>
+                          <p className="text-muted truncate">
+                            {[entry.code, entry.room].filter(Boolean).join(" - ")}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-muted">No classes scheduled.</p>
+                    )}
+                  </div>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {dayEntries.length > 0 ? (
-                    dayEntries.map((entry) => (
-                    <button
-                      key={entry.id}
-                      className="neo-inset min-h-[110px] w-full border-l-4 p-3 text-left transition hover:-translate-y-0.5"
-                      style={{ borderLeftColor: getEntryAccentColor(entry) }}
-                      onClick={() => editEntry(entry)}
-                    >
-                      <p className="text-xs font-semibold text-muted">
-                        {formatTime(entry.start)} - {formatTime(entry.end)}
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-foreground">
-                        {entry.title}
-                      </p>
-                      <p className="mt-1 text-xs text-muted">
-                        {[entry.code, entry.room].filter(Boolean).join(" - ")}
-                      </p>
-                    </button>
-                    ))
-                  ) : (
-                    <div className="neo-inset p-4 text-sm text-muted">
-                      No schedule items.
-                    </div>
-                  )}
-                </div>
-              </div>
               );
             })}
           </div>
         </div>
       </section>
 
-      <FeedbackWidget
-        schoolPaletteId={settings.schoolPaletteId}
-        deviceSize={selectedWallpaperSize}
-        onEmailOpened={() =>
-          setMessage("Your email app was opened with the feedback report ready to send.")
-        }
-      />
-
+      {/* Wallpaper Preview Dialog */}
       {previewOpen ? (
         <PhonePreviewDialog
           settings={settings}
           setSettings={setSettings}
-          entries={previewEntries}
+          entries={sortedEntries}
           sizePreset={selectedWallpaperSize}
           onClose={() => setPreviewOpen(false)}
           onDownload={downloadWallpaper}
+          onShare={shareWallpaper}
         />
       ) : null}
+
+      {/* Feedback Widget */}
+      <FeedbackWidget
+        schoolPaletteId={settings.schoolPaletteId}
+        deviceSize={selectedWallpaperSize}
+        onEmailOpened={() =>
+          setMessage("Draft opened in your email app addressed to the developer.")
+        }
+      />
     </main>
   );
 }
 
-function Panel({
-  title,
-  children,
-  sectionRef,
-}: {
-  title: string;
-  children: React.ReactNode;
-  sectionRef?: React.RefObject<HTMLElement | null>;
-}) {
-  return (
-    <section ref={sectionRef} className="neo-card scroll-mt-4 p-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-        <div className="h-2 w-16 rounded-full bg-gradient-to-r from-primary to-accent" />
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="grid gap-2 text-sm font-medium text-foreground">
-      {label}
-      {children}
-    </label>
-  );
-}
-
-function TextInput({
-  label,
-  value,
-  onChange,
-  type = "text",
-  placeholder,
-  inputRef,
-  required = false,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-  placeholder?: string;
-  inputRef?: React.RefObject<HTMLInputElement | null>;
-  required?: boolean;
-}) {
-  return (
-    <Field label={label}>
-      <input
-        ref={inputRef}
-        className="field"
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        required={required}
-        aria-required={required}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </Field>
-  );
-}
-
-const feedbackKinds = {
-  report: "Problem report",
-  enhancement: "Enhancement request",
-  feedback: "General feedback",
-} as const;
-
-type FeedbackKind = keyof typeof feedbackKinds;
-
-function FeedbackWidget({
-  schoolPaletteId,
-  deviceSize,
-  onEmailOpened,
-}: {
-  schoolPaletteId: SchoolPaletteId;
-  deviceSize: SelectedWallpaperSize;
-  onEmailOpened: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<FeedbackKind>("report");
-  const [replyEmail, setReplyEmail] = useState("");
-  const [feedback, setFeedback] = useState("");
-  const [error, setError] = useState("");
-
-  function submitFeedback(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const trimmedFeedback = feedback.trim();
-    if (!trimmedFeedback) {
-      setError("Describe the problem, suggestion, or feedback before continuing.");
-      return;
-    }
-
-    const school = getSchoolPalette(schoolPaletteId);
-    const subject = `[SmartSched] ${feedbackKinds[kind]}`;
-    const body = [
-      `Type: ${feedbackKinds[kind]}`,
-      `School palette: ${school.name}`,
-      `Wallpaper size: ${formatWallpaperSize(deviceSize.width, deviceSize.height)}`,
-      replyEmail.trim() ? `Reply email: ${replyEmail.trim()}` : "Reply email: Not provided",
-      "",
-      "Message:",
-      trimmedFeedback.slice(0, 1600),
-      "",
-      `Page: ${window.location.href}`,
-      `Browser: ${navigator.userAgent.slice(0, 260)}`,
-    ].join("\n");
-
-    setError("");
-    setOpen(false);
-    setFeedback("");
-    onEmailOpened();
-    window.location.href = `mailto:danojosephclyde@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  }
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        className="fixed bottom-5 right-5 z-40 inline-flex min-h-12 items-center gap-2 rounded-full border-2 border-primary-strong bg-primary px-4 text-sm font-bold text-white shadow-[0_14px_34px_rgba(0,0,0,0.28)] transition hover:-translate-y-0.5 sm:bottom-6 sm:right-6"
-        onClick={() => setOpen(true)}
-      >
-        <MessageCircle aria-hidden="true" className="size-5" />
-        Report / Feedback
-      </button>
-    );
-  }
-
-  return (
-    <aside
-      className="neo-card fixed inset-x-4 bottom-4 z-40 max-h-[calc(100dvh-2rem)] overflow-y-auto p-4 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[390px] sm:p-5"
-      role="dialog"
-      aria-modal="false"
-      aria-labelledby="feedback-title"
-    >
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h2 id="feedback-title" className="text-lg font-semibold text-foreground">
-            Report or send feedback
-          </h2>
-          <p className="mt-1 text-xs leading-5 text-muted">
-            Your email app will open with the report addressed to the developer.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="secondary-button min-h-10 px-3"
-          aria-label="Close feedback form"
-          onClick={() => setOpen(false)}
-        >
-          <X aria-hidden="true" className="size-4" />
-        </button>
-      </div>
-
-      <form className="grid gap-3" onSubmit={submitFeedback}>
-        <Field label="Feedback type">
-          <select
-            className="field"
-            value={kind}
-            onChange={(event) => setKind(event.target.value as FeedbackKind)}
-          >
-            {Object.entries(feedbackKinds).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Your email (optional)">
-          <input
-            className="field"
-            type="email"
-            autoComplete="email"
-            placeholder="So the developer can reply"
-            value={replyEmail}
-            onChange={(event) => setReplyEmail(event.target.value)}
-          />
-        </Field>
-        <Field label="What happened or what should improve?">
-          <textarea
-            className="field min-h-32 resize-y py-3 leading-6"
-            required
-            maxLength={1600}
-            placeholder="Include the steps, expected result, or your enhancement idea."
-            value={feedback}
-            onChange={(event) => {
-              setFeedback(event.target.value);
-              if (error) {
-                setError("");
-              }
-            }}
-            onKeyDown={(event) => {
-              if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-          />
-        </Field>
-        <div className="flex items-center justify-between gap-3 text-xs text-muted">
-          <span>{feedback.length}/1600</span>
-          <span>Ctrl/⌘ + Enter to continue</span>
-        </div>
-        {error ? (
-          <p className="rounded-lg border-2 border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <button className="primary-button" type="submit">
-          <Send aria-hidden="true" className="size-4" />
-          Continue to email
-        </button>
-        <p className="text-center text-xs leading-5 text-muted">
-          Sends to danojosephclyde@gmail.com after you confirm in your email app.
-        </p>
-      </form>
-    </aside>
-  );
-}
-
-function SchoolPalettePicker({
-  selectedId,
-  onChange,
-}: {
-  selectedId: SchoolPaletteId;
-  onChange: (palette: SchoolPalette) => void;
-}) {
-  return (
-    <Field label="Philippine school palette">
-      <select
-        className="field"
-        value={selectedId}
-        onChange={(event) =>
-          onChange(getSchoolPalette(event.target.value as SchoolPaletteId))
-        }
-      >
-        {(["State universities", "Private universities"] as const).map(
-          (category) => (
-            <optgroup key={category} label={category}>
-              {schoolPalettes
-                .filter((palette) => palette.category === category)
-                .map((palette) => (
-                  <option key={palette.id} value={palette.id}>
-                    {palette.name}
-                  </option>
-                ))}
-            </optgroup>
-          ),
-        )}
-      </select>
-      <div className="flex items-center gap-2" aria-label="Selected school colors">
-        {getSchoolPalette(selectedId).colors.map((color) => (
-          <span
-            key={color}
-            className="h-7 flex-1 rounded-lg border-2 border-border"
-            style={{ backgroundColor: color }}
-          />
-        ))}
-      </div>
-    </Field>
-  );
-}
-
-function WallpaperTemplatePicker({
-  value,
-  schoolPaletteId,
-  onChange,
-}: {
-  value: WallpaperStyle;
-  schoolPaletteId: SchoolPaletteId;
-  onChange: (style: WallpaperStyle) => void;
-}) {
-  return (
-    <Field label="Wallpaper template">
-      <div className="grid grid-cols-2 gap-2">
-        {wallpaperStyles.map((style) => {
-          const palette = getWallpaperPalette(
-            style,
-            getSchoolPalette(schoolPaletteId),
-          );
-          const selected = value === style;
-
-          return (
-            <button
-              key={style}
-              type="button"
-              aria-pressed={selected}
-              className={
-                selected
-                  ? "template-option border-primary ring-2 ring-primary/30"
-                  : "template-option border-border"
-              }
-              onClick={() => onChange(style)}
-            >
-              <span
-                className="template-preview"
-                style={{
-                  background: `linear-gradient(145deg, ${palette.headerStart}, ${palette.pageEnd})`,
-                }}
-              >
-                <span style={{ backgroundColor: palette.panel }} />
-                <span style={{ backgroundColor: palette.card }} />
-              </span>
-              <span>{style}</span>
-            </button>
-          );
-        })}
-      </div>
-    </Field>
-  );
-}
-
-function WallpaperControls({
-  settings,
-  setSettings,
-  sizePreset,
-}: {
-  settings: ScheduleSettings;
-  setSettings: (updater: (current: ScheduleSettings) => ScheduleSettings) => void;
-  sizePreset: SelectedWallpaperSize;
-}) {
-  return (
-    <div className="grid gap-3">
-      <WallpaperTemplatePicker
-        value={settings.wallpaperStyle}
-        schoolPaletteId={settings.schoolPaletteId}
-        onChange={(wallpaperStyle) =>
-          setSettings((current) => ({ ...current, wallpaperStyle }))
-        }
-      />
-      <Field label="Layout">
-        <select
-          className="field"
-          value={settings.wallpaperLayoutMode}
-          onChange={(event) =>
-            setSettings((current) => ({
-              ...current,
-              wallpaperLayoutMode: event.target.value as WallpaperLayoutMode,
-            }))
-          }
-        >
-          {wallpaperLayoutModes.map((layout) => (
-            <option key={layout} value={layout}>
-              {layout}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Wallpaper size">
-        <select
-          className="field"
-          value={settings.wallpaperSizeId}
-          onChange={(event) =>
-            setSettings((current) => ({
-              ...current,
-              wallpaperSizeId: event.target.value as WallpaperSizeId,
-            }))
-          }
-        >
-          {wallpaperSizeGroups.map((group) => (
-            <optgroup key={group} label={group}>
-              {wallpaperSizePresets
-                .filter((preset) => preset.group === group)
-                .map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.id === "device-auto"
-                      ? preset.label
-                      : `${preset.label} - ${formatWallpaperSize(preset.width, preset.height)}`}
-                  </option>
-                ))}
-            </optgroup>
-          ))}
-        </select>
-        {settings.wallpaperSizeId === "custom" ? (
-          <div className="grid grid-cols-2 gap-3 text-sm font-medium text-foreground">
-            <div className="grid gap-2">
-              <span>Width</span>
-              <input
-                aria-label="Custom wallpaper width"
-                className="field"
-                type="number"
-                min="320"
-                max="8000"
-                step="1"
-                value={String(settings.wallpaperCustomWidth)}
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    wallpaperCustomWidth: clampWallpaperDimension(
-                      Number(event.target.value),
-                    ),
-                  }))
-                }
-              />
-            </div>
-            <div className="grid gap-2">
-              <span>Height</span>
-              <input
-                aria-label="Custom wallpaper height"
-                className="field"
-                type="number"
-                min="320"
-                max="8000"
-                step="1"
-                value={String(settings.wallpaperCustomHeight)}
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    wallpaperCustomHeight: clampWallpaperDimension(
-                      Number(event.target.value),
-                    ),
-                  }))
-                }
-              />
-            </div>
-          </div>
-        ) : null}
-        <span className="text-xs leading-5 text-muted">
-          {settings.wallpaperSizeId === "device-auto" ? "Detected: " : ""}
-          {sizePreset.group} / {formatWallpaperSize(sizePreset.width, sizePreset.height)}
-        </span>
-      </Field>
-      <Field label="Export format">
-        <select
-          className="field"
-          value={settings.wallpaperExportFormat}
-          onChange={(event) =>
-            setSettings((current) => ({
-              ...current,
-              wallpaperExportFormat: event.target.value as WallpaperExportFormat,
-            }))
-          }
-        >
-          {wallpaperExportFormats.map((format) => (
-            <option key={format} value={format}>
-              {format}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <RangeControl
-        label="Day label size"
-        min={28}
-        max={76}
-        value={settings.wallpaperDayLabelSize}
-        onChange={(value) =>
-          setSettings((current) => ({
-            ...current,
-            wallpaperDayLabelSize: value,
-          }))
-        }
-      />
-      <RangeControl
-        label="Class card text"
-        min={18}
-        max={42}
-        value={settings.wallpaperCardTextSize}
-        onChange={(value) =>
-          setSettings((current) => ({
-            ...current,
-            wallpaperCardTextSize: value,
-          }))
-        }
-      />
-      <ToggleControl
-        label="Auto-fit wallpaper"
-        checked={settings.wallpaperAutoFit}
-        onChange={(checked) =>
-          setSettings((current) => ({
-            ...current,
-            wallpaperAutoFit: checked,
-          }))
-        }
-      />
-      <ToggleControl
-        label="Show empty weekdays"
-        checked={settings.wallpaperShowEmptyWeekdays}
-        onChange={(checked) =>
-          setSettings((current) => ({
-            ...current,
-            wallpaperShowEmptyWeekdays: checked,
-          }))
-        }
-      />
-    </div>
-  );
-}
-
-function RangeControl({
-  label,
-  min,
-  max,
-  value,
-  onChange,
-}: {
-  label: string;
-  min: number;
-  max: number;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <Field label={label}>
-      <div className="grid grid-cols-[1fr_64px] items-center gap-3">
-        <input
-          className="accent-primary"
-          type="range"
-          min={min}
-          max={max}
-          value={value}
-          onChange={(event) => onChange(Number(event.target.value))}
-        />
-        <input
-          aria-label={`${label} value`}
-          className="field px-2 text-center"
-          type="number"
-          min={min}
-          max={max}
-          value={String(value)}
-          onChange={(event) =>
-            onChange(clampNumber(Number(event.target.value), min, max, value))
-          }
-        />
-      </div>
-    </Field>
-  );
-}
-
-function ToggleControl({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-border/70 bg-surface px-3 text-sm font-semibold text-foreground shadow-[inset_4px_4px_9px_var(--neo-soft-shadow),inset_-4px_-4px_9px_var(--neo-highlight)]">
-      <span>{label}</span>
-      <input
-        className="size-5 accent-primary"
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-    </label>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="neo-card p-4">
-      <p className="text-sm font-medium text-muted">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-foreground">{value}</p>
-    </div>
-  );
-}
-
-function ScheduleRow({
-  entry,
-  onEdit,
-  onDelete,
-}: {
-  entry: ScheduleEntry;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <article className="neo-card grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
-      <button className="text-left" onClick={onEdit}>
-        <div className="flex flex-wrap items-center gap-2">
-          <span
-            className="rounded px-2 py-1 text-xs font-semibold text-white"
-            style={{ backgroundColor: getEntryAccentColor(entry) }}
-          >
-            {entry.type}
-          </span>
-          <p className="text-sm font-semibold text-foreground">
-            {formatTime(entry.start)} - {formatTime(entry.end)}
-          </p>
-        </div>
-        <h3 className="mt-2 text-lg font-semibold text-foreground">
-          {entry.title}
-        </h3>
-        <p className="mt-1 text-sm leading-6 text-muted">
-          {[entry.days.map((day) => day.slice(0, 3)).join("/"), entry.code, entry.room]
-            .filter(Boolean)
-            .join(" - ")}
-        </p>
-      </button>
-      <button
-        aria-label={`Delete ${entry.title}`}
-        className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-3 text-sm font-semibold text-danger"
-        onClick={onDelete}
-      >
-        <Trash2 aria-hidden="true" className="size-4" />
-        Delete
-      </button>
-    </article>
-  );
-}
-
-function formatHolidayDate(date: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(`${date}T00:00:00`));
-}
-
+// ICS Calendar & Notification Utilities
 function checkDueNotifications(
   entries: ScheduleEntry[],
   holidayCalendar: HolidayCalendar,
@@ -2132,7 +1609,6 @@ function checkDueNotifications(
   }
 
   const today = dayNameForDate(now);
-
   const notified = new Set(
     JSON.parse(localStorage.getItem(notifiedKey) || "[]") as string[],
   );
@@ -2219,19 +1695,15 @@ function getHolidayExclusions(
   holidayCalendar: HolidayCalendar,
   occurrenceCount: number,
 ) {
-  if (!holidayCalendar.enabled || holidayCalendar.holidays.length === 0) {
+  if (!holidayCalendar.enabled) {
     return [];
   }
 
-  const holidayDates = new Set(
-    holidayCalendar.holidays.map((holiday) => holiday.date),
-  );
   const exclusions: Date[] = [];
-
   for (let index = 0; index < occurrenceCount; index += 1) {
     const occurrence = new Date(firstOccurrence);
     occurrence.setDate(firstOccurrence.getDate() + index * 7);
-    if (holidayDates.has(formatLocalDateKey(occurrence))) {
+    if (holidayForDate(holidayCalendar, occurrence)) {
       exclusions.push(occurrence);
     }
   }
@@ -2265,969 +1737,4 @@ function downloadBlob(filename: string, blob: Blob) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
-}
-
-function hexToRgba(hex: string, alpha: number) {
-  const value = hex.replace("#", "");
-  const red = Number.parseInt(value.slice(0, 2), 16);
-  const green = Number.parseInt(value.slice(2, 4), 16);
-  const blue = Number.parseInt(value.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-}
-
-function shadeHex(hex: string, intensity: number) {
-  const value = hex.replace("#", "");
-  const channel = (start: number) =>
-    Math.round(Number.parseInt(value.slice(start, start + 2), 16) * intensity)
-      .toString(16)
-      .padStart(2, "0");
-  return `#${channel(0)}${channel(2)}${channel(4)}`;
-}
-
-function getWallpaperPalette(
-  style: WallpaperStyle,
-  schoolPalette: SchoolPalette = schoolPalettes[0],
-): WallpaperPalette {
-  const palettes: Record<WallpaperStyle, WallpaperPalette> = {
-    "School Palette": {
-      pageStart: schoolPalette.uiPrimary,
-      pageMid: schoolPalette.uiPrimaryStrong,
-      pageEnd: shadeHex(schoolPalette.uiAccent, 0.32),
-      headerStart: schoolPalette.uiPrimary,
-      headerMid: schoolPalette.uiPrimaryStrong,
-      headerEnd: shadeHex(schoolPalette.uiAccent, 0.42),
-      text: "#ffffff",
-      muted: "#d5e0e8",
-      soft: "#ffffff",
-      panel: hexToRgba(schoolPalette.uiPrimary, 0.72),
-      panelAlt: hexToRgba(schoolPalette.uiPrimaryStrong, 0.82),
-      line: schoolPalette.uiAccent,
-      emptyPanel: "rgba(255, 255, 255, 0.1)",
-      card: hexToRgba(schoolPalette.uiPrimaryStrong, 0.94),
-      time: hexToRgba(schoolPalette.uiAccent, 0.38),
-      grid: "rgba(255, 255, 255, 0.055)",
-    },
-    "Soft Charcoal": {
-      pageStart: "#20252c",
-      pageMid: "#1f2630",
-      pageEnd: "#171d24",
-      headerStart: "#2b323b",
-      headerMid: "#252d36",
-      headerEnd: "#1d242c",
-      text: "#eef3f7",
-      muted: "#b8c3ce",
-      soft: "#f7fbff",
-      panel: "#353c46",
-      panelAlt: "#303842",
-      line: "#8fa1b3",
-      emptyPanel: "rgba(226, 235, 244, 0.12)",
-      card: "#222934",
-      time: "#3b4654",
-      grid: "rgba(226, 235, 244, 0.045)",
-    },
-    Sage: {
-      pageStart: "#eef4ef",
-      pageMid: "#e4ede6",
-      pageEnd: "#d7e4dd",
-      headerStart: "#fbfdfc",
-      headerMid: "#f0f6f2",
-      headerEnd: "#e5eee9",
-      text: "#14241b",
-      muted: "#4f675b",
-      soft: "#102018",
-      panel: "#f8faf8",
-      panelAlt: "#edf4ef",
-      line: "#91a79d",
-      emptyPanel: "rgba(39, 58, 50, 0.08)",
-      card: "#ffffff",
-      time: "#e5eee9",
-      grid: "rgba(83, 108, 96, 0.07)",
-    },
-    "Warm Gray": {
-      pageStart: "#eeece8",
-      pageMid: "#e3e0da",
-      pageEnd: "#d8d3cc",
-      headerStart: "#fbfaf7",
-      headerMid: "#f1eee8",
-      headerEnd: "#e6e1d8",
-      text: "#251f1a",
-      muted: "#665d53",
-      soft: "#1d1815",
-      panel: "#f8f6f2",
-      panelAlt: "#eeeae3",
-      line: "#a69b8e",
-      emptyPanel: "rgba(64, 55, 47, 0.08)",
-      card: "#fffdfa",
-      time: "#e9e4dc",
-      grid: "rgba(86, 74, 64, 0.07)",
-    },
-    Paper: {
-      pageStart: "#f7f6ef",
-      pageMid: "#efede4",
-      pageEnd: "#e5e1d7",
-      headerStart: "#fffefa",
-      headerMid: "#f5f2e9",
-      headerEnd: "#ebe5da",
-      text: "#1f2521",
-      muted: "#5f665f",
-      soft: "#161d18",
-      panel: "#fffefa",
-      panelAlt: "#f2efe6",
-      line: "#a1a89e",
-      emptyPanel: "rgba(47, 55, 49, 0.08)",
-      card: "#ffffff",
-      time: "#ece9df",
-      grid: "rgba(70, 78, 72, 0.065)",
-    },
-    "High Contrast": {
-      pageStart: "#121417",
-      pageMid: "#171a1e",
-      pageEnd: "#0f1115",
-      headerStart: "#22262c",
-      headerMid: "#1c2026",
-      headerEnd: "#15191e",
-      text: "#fbf8ee",
-      muted: "#d7d1c3",
-      soft: "#fffaf0",
-      panel: "#242931",
-      panelAlt: "#1f242b",
-      line: "#d6cfc0",
-      emptyPanel: "rgba(255, 250, 240, 0.12)",
-      card: "#11151a",
-      time: "#30363f",
-      grid: "rgba(255, 250, 240, 0.055)",
-    },
-  };
-
-  return palettes[style];
-}
-
-function getWallpaperLayoutProfile(
-  layoutMode: WallpaperLayoutMode,
-): WallpaperLayoutProfile {
-  const profiles: Record<WallpaperLayoutMode, WallpaperLayoutProfile> = {
-    Compact: {
-      spacingScale: 0.78,
-      paddingScale: 0.84,
-      fontScale: 0.92,
-    },
-    Balanced: {
-      spacingScale: 1,
-      paddingScale: 1,
-      fontScale: 1,
-    },
-    Spacious: {
-      spacingScale: 1.24,
-      paddingScale: 1.18,
-      fontScale: 1.1,
-    },
-  };
-
-  return profiles[layoutMode];
-}
-
-function getAutoFitScale(
-  width: number,
-  height: number,
-  enabled: boolean,
-  isDesktop: boolean,
-) {
-  if (!enabled) {
-    return 1;
-  }
-
-  const shortSide = Math.min(width, height);
-  const longSide = Math.max(width, height);
-  const base = isDesktop ? shortSide / 1080 : shortSide / 1080;
-  const tallBonus = !isDesktop && longSide / shortSide > 1.9 ? 1.04 : 1;
-
-  return clampNumber(base * 100 * tallBonus, 78, 112, 100) / 100;
-}
-
-function allocateRowHeights(
-  totalHeight: number,
-  gap: number,
-  demands: number[],
-  minimumRowHeight: number,
-) {
-  if (demands.length === 0) {
-    return [];
-  }
-
-  const usableHeight = Math.max(
-    demands.length,
-    totalHeight - gap * Math.max(0, demands.length - 1),
-  );
-  const baseHeight = Math.min(minimumRowHeight, usableHeight / demands.length);
-  const remainingHeight = Math.max(0, usableHeight - baseHeight * demands.length);
-  const extraDemands = demands.map((demand) => Math.max(0, demand - 1));
-  const totalExtraDemand = extraDemands.reduce((sum, demand) => sum + demand, 0);
-
-  if (totalExtraDemand === 0) {
-    return demands.map(() => usableHeight / demands.length);
-  }
-
-  return extraDemands.map(
-    (demand) => baseHeight + remainingHeight * (demand / totalExtraDemand),
-  );
-}
-
-function drawWallpaper(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  settings: ScheduleSettings,
-  entries: ScheduleEntry[],
-) {
-  if (width >= height) {
-    drawDesktopWallpaper(ctx, width, height, settings, entries);
-    return;
-  }
-
-  const baseScale = width / 1440;
-  const profile = getWallpaperLayoutProfile(settings.wallpaperLayoutMode);
-  const autoScale = getAutoFitScale(width, height, settings.wallpaperAutoFit, false);
-  const scale = baseScale * autoScale;
-  const spacingScale = scale * profile.spacingScale;
-  const paddingScale = scale * profile.paddingScale;
-  const fontScale = scale * profile.fontScale;
-  const s = (value: number) => value * scale;
-  const sp = (value: number) => value * spacingScale;
-  const pad = (value: number) => value * paddingScale;
-  const fs = (value: number) => value * fontScale;
-  const title = settings.wallpaperTitle || "Class Schedule";
-  const busiestDayCount = Math.max(
-    0,
-    ...days.map((day) => entriesForDay(entries, day).length),
-  );
-  const denseSchedule = busiestDayCount >= 5 || entries.length >= 18;
-  const titleSize = Math.max(23, fs(settings.wallpaperTitleSize));
-  const schoolSize = Math.max(13, fs(Math.round(settings.wallpaperTitleSize * 0.52)));
-  const phoneClockSafeHeight = Math.round(
-    Math.min(height * 0.32, Math.max(height * 0.2, s(560))),
-  );
-  const titleBandHeight = Math.max(sp(150), titleSize + schoolSize + sp(54));
-  const headerHeight = Math.round(
-    Math.min(height * 0.46, phoneClockSafeHeight + titleBandHeight),
-  );
-  const schoolPalette = getSchoolPalette(settings.schoolPaletteId);
-  const palette = getWallpaperPalette(settings.wallpaperStyle, schoolPalette);
-  const {
-    pageStart,
-    pageMid,
-    pageEnd,
-    headerStart,
-    headerMid,
-    headerEnd,
-    text: silver,
-    muted,
-    soft,
-    panel,
-    panelAlt,
-    line,
-    emptyPanel,
-  } = palette;
-  const cardColors: WallpaperCardColors = {
-    card: palette.card,
-    time: palette.time,
-    title: palette.soft,
-    detail: palette.muted,
-  };
-
-  const pageGradient = ctx.createLinearGradient(0, 0, width, height);
-  pageGradient.addColorStop(0, pageStart);
-  pageGradient.addColorStop(0.52, pageMid);
-  pageGradient.addColorStop(1, pageEnd);
-  ctx.fillStyle = pageGradient;
-  ctx.fillRect(0, 0, width, height);
-
-  const headerGradient = ctx.createLinearGradient(0, 0, width, headerHeight);
-  headerGradient.addColorStop(0, headerStart);
-  headerGradient.addColorStop(0.55, headerMid);
-  headerGradient.addColorStop(1, headerEnd);
-  ctx.fillStyle = headerGradient;
-  ctx.fillRect(0, 0, width, headerHeight);
-
-  ctx.fillStyle = schoolPalette.colors[0];
-  ctx.fillRect(0, headerHeight - 18, width, 10);
-  ctx.fillStyle = schoolPalette.colors[1];
-  ctx.fillRect(0, headerHeight - 8, width, 8);
-
-  ctx.fillStyle = palette.grid;
-  for (let x = 0; x < width; x += Math.max(44, s(76))) {
-    ctx.fillRect(x, 0, 1, height);
-  }
-  for (let y = 0; y < height; y += Math.max(44, s(76))) {
-    ctx.fillRect(0, y, width, 1);
-  }
-
-  const left = Math.max(20, pad(58));
-  const top = headerHeight + sp(16);
-  const tableWidth = width - left * 2;
-  const bottom =
-    height - (denseSchedule ? Math.max(sp(94), 64) : Math.max(sp(120), 76));
-  const tableHeight = bottom - top;
-  const rowGap = denseSchedule ? Math.max(4, sp(9)) : Math.max(6, sp(16));
-  const wallpaperDays = getWallpaperDays(entries, settings);
-  const rowHeights = allocateRowHeights(
-    tableHeight,
-    rowGap,
-    wallpaperDays.map((day) => Math.max(1, entriesForDay(entries, day).length)),
-    denseSchedule ? Math.max(sp(104), 72) : Math.max(sp(132), 88),
-  );
-  const titleBaseline = Math.min(
-    headerHeight - sp(76),
-    phoneClockSafeHeight + titleSize + sp(24),
-  );
-  const schoolBaseline = Math.min(
-    headerHeight - sp(36),
-    titleBaseline + schoolSize * 1.4,
-  );
-
-  ctx.fillStyle = soft;
-  ctx.font = `700 ${titleSize}px Arial`;
-  drawFittedText(ctx, title, left + pad(18), titleBaseline, s(800), titleSize, 20);
-  ctx.fillStyle = muted;
-  ctx.font = `400 ${schoolSize}px Arial`;
-  drawFittedText(
-    ctx,
-    schoolPalette.name,
-    left + pad(20),
-    schoolBaseline,
-    s(820),
-    schoolSize,
-    12,
-  );
-
-  roundedRect(
-    ctx,
-    width - s(430),
-    titleBaseline - titleSize * 0.95,
-    s(300),
-    sp(62),
-    sp(31),
-    "rgba(255, 255, 255, 0.12)",
-  );
-  ctx.fillStyle = silver;
-  ctx.font = `700 ${Math.max(11, fs(24))}px Arial`;
-  drawFittedText(
-    ctx,
-    formatWallpaperSize(width, height),
-    width - s(390),
-    titleBaseline - titleSize * 0.95 + sp(39),
-    s(150),
-    Math.max(11, fs(24)),
-    9,
-  );
-  ctx.fillStyle = muted;
-  ctx.font = `400 ${Math.max(9, fs(20))}px Arial`;
-  drawFittedText(
-    ctx,
-    "PHONE WALLPAPER",
-    width - s(245),
-    titleBaseline - titleSize * 0.95 + sp(39),
-    s(130),
-    Math.max(9, fs(20)),
-    8,
-  );
-
-  ctx.shadowColor = "rgba(0, 0, 0, 0.38)";
-  ctx.shadowBlur = sp(38);
-  ctx.shadowOffsetY = sp(18);
-  roundedRect(ctx, left - pad(14), top - sp(18), tableWidth + pad(28), tableHeight + sp(36), sp(36), "rgba(11, 16, 22, 0.45)");
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
-
-  wallpaperDays.forEach((day, index) => {
-    const rowHeight = rowHeights[index];
-    const y =
-      top +
-      rowHeights.slice(0, index).reduce((sum, height) => sum + height, 0) +
-      index * rowGap;
-    const dayEntries = entriesForDay(entries, day);
-    const rowColor = index % 2 === 0 ? panel : panelAlt;
-    roundedRect(ctx, left, y, tableWidth, rowHeight, sp(28), rowColor);
-
-    const dayColumnWidth = denseSchedule ? pad(132) : pad(166);
-    const scheduleInset = denseSchedule ? pad(22) : pad(32);
-
-    ctx.fillStyle = line;
-    ctx.fillRect(
-      left + dayColumnWidth,
-      y + sp(denseSchedule ? 16 : 26),
-      Math.max(1, s(2)),
-      rowHeight - sp(denseSchedule ? 32 : 52),
-    );
-
-    ctx.fillStyle = silver;
-    const dayLabelSize = Math.max(
-      16,
-      fs(settings.wallpaperDayLabelSize * (denseSchedule ? 0.82 : 1)),
-    );
-    ctx.font = `700 ${dayLabelSize}px Arial`;
-    ctx.fillText(
-      day.slice(0, 3).toUpperCase(),
-      left + pad(denseSchedule ? 22 : 34),
-      y + sp(denseSchedule ? 62 : 78),
-    );
-    ctx.fillStyle = muted;
-    const fullDaySize = Math.max(9, fs(Math.round(settings.wallpaperDayLabelSize * 0.42)));
-    ctx.font = `700 ${fullDaySize}px Arial`;
-    if (!denseSchedule) {
-      drawFittedText(ctx, day.toUpperCase(), left + pad(38), y + sp(114), pad(96), fullDaySize, 8);
-    }
-
-    roundedRect(
-      ctx,
-      left + pad(denseSchedule ? 20 : 34),
-      y + rowHeight - sp(denseSchedule ? 54 : 72),
-      pad(denseSchedule ? 90 : 106),
-      sp(denseSchedule ? 32 : 40),
-      sp(20),
-      "rgba(255, 255, 255, 0.1)",
-    );
-    ctx.fillStyle = silver;
-    ctx.font = `700 ${Math.max(8, fs(20))}px Arial`;
-    drawFittedText(
-      ctx,
-      `${dayEntries.length} ITEM${dayEntries.length === 1 ? "" : "S"}`,
-      left + pad(denseSchedule ? 34 : 52),
-      y + rowHeight - sp(denseSchedule ? 32 : 45),
-      pad(denseSchedule ? 62 : 74),
-      Math.max(8, fs(20)),
-      7,
-    );
-
-    const scheduleX = left + dayColumnWidth + scheduleInset;
-    const scheduleY = y + sp(denseSchedule ? 12 : 22);
-    const scheduleWidth = tableWidth - dayColumnWidth - scheduleInset - pad(30);
-    const scheduleHeight = rowHeight - sp(denseSchedule ? 24 : 44);
-
-    if (dayEntries.length === 0) {
-      roundedRect(ctx, scheduleX, scheduleY, scheduleWidth, scheduleHeight, sp(22), emptyPanel);
-      ctx.fillStyle = muted;
-      ctx.font = `700 ${Math.max(12, fs(30))}px Arial`;
-      drawFittedText(
-        ctx,
-        "No scheduled class",
-        scheduleX + pad(34),
-        scheduleY + scheduleHeight / 2 + sp(10),
-        scheduleWidth - pad(68),
-        Math.max(12, fs(30)),
-        10,
-      );
-      return;
-    }
-
-    const itemGap = Math.min(
-      Math.max(3, sp(denseSchedule ? 8 : 14)),
-      scheduleHeight / Math.max(6, dayEntries.length * 5),
-    );
-    const visibleEntries = dayEntries;
-    const availableItemHeight =
-      (scheduleHeight - itemGap * (visibleEntries.length - 1)) /
-      visibleEntries.length;
-    const itemHeight = Math.max(1, availableItemHeight);
-    const itemGroupHeight =
-      itemHeight * visibleEntries.length + itemGap * (visibleEntries.length - 1);
-    const itemStartY = scheduleY + (scheduleHeight - itemGroupHeight) / 2;
-
-    visibleEntries.forEach((entry, entryIndex) => {
-      const itemY = itemStartY + entryIndex * (itemHeight + itemGap);
-      drawReadableScheduleCard(
-        ctx,
-        entry,
-        scheduleX,
-        itemY,
-        scheduleWidth,
-        itemHeight,
-        scale,
-        cardColors,
-        settings.wallpaperCardTextSize,
-        profile,
-      );
-    });
-
-  });
-
-  ctx.fillStyle = muted;
-  ctx.font = `400 ${Math.max(10, fs(24))}px Arial`;
-  ctx.fillText("Generated by SmartSched Local", s(76), height - Math.max(30, sp(56)));
-  ctx.fillStyle = "#9ca3af";
-  ctx.fillRect(width - s(272), height - Math.max(28, sp(52)), s(196), Math.max(3, s(8)));
-}
-
-function drawDesktopWallpaper(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  settings: ScheduleSettings,
-  entries: ScheduleEntry[],
-) {
-  const schoolPalette = getSchoolPalette(settings.schoolPaletteId);
-  const palette = getWallpaperPalette(settings.wallpaperStyle, schoolPalette);
-  const profile = getWallpaperLayoutProfile(settings.wallpaperLayoutMode);
-  const autoScale = getAutoFitScale(width, height, settings.wallpaperAutoFit, true);
-  const scale = (width / 1920) * autoScale;
-  const spacingScale = scale * profile.spacingScale;
-  const paddingScale = scale * profile.paddingScale;
-  const fontScale = scale * profile.fontScale;
-  const s = (value: number) => value * scale;
-  const sp = (value: number) => value * spacingScale;
-  const pad = (value: number) => value * paddingScale;
-  const fs = (value: number) => value * fontScale;
-  const {
-    pageStart,
-    pageMid,
-    pageEnd,
-    text: silver,
-    muted,
-    soft,
-    panel,
-    panelAlt,
-    card,
-    line,
-  } = palette;
-  const pageGradient = ctx.createLinearGradient(0, 0, width, height);
-  pageGradient.addColorStop(0, pageStart);
-  pageGradient.addColorStop(0.54, pageMid);
-  pageGradient.addColorStop(1, pageEnd);
-  ctx.fillStyle = pageGradient;
-  ctx.fillRect(0, 0, width, height);
-  ctx.fillStyle = schoolPalette.colors[0];
-  ctx.fillRect(0, 0, width * 0.72, Math.max(6, s(10)));
-  ctx.fillStyle = schoolPalette.colors[1];
-  ctx.fillRect(width * 0.72, 0, width * 0.28, Math.max(6, s(10)));
-
-  ctx.fillStyle = palette.grid;
-  for (let x = 0; x < width; x += Math.max(44, s(82))) {
-    ctx.fillRect(x, 0, 1, height);
-  }
-  for (let y = 0; y < height; y += Math.max(44, s(82))) {
-    ctx.fillRect(0, y, width, 1);
-  }
-
-  const margin = Math.max(42, pad(72));
-  const title = settings.wallpaperTitle || "Class Schedule";
-  const titleSize = Math.max(28, fs(settings.wallpaperTitleSize));
-  const schoolSize = Math.max(15, fs(Math.round(settings.wallpaperTitleSize * 0.52)));
-
-  ctx.fillStyle = soft;
-  ctx.font = `700 ${titleSize}px Arial`;
-  drawFittedText(ctx, title, margin, sp(108), width * 0.5, titleSize, 24);
-  ctx.fillStyle = muted;
-  ctx.font = `400 ${schoolSize}px Arial`;
-  drawFittedText(
-    ctx,
-    schoolPalette.name,
-    margin + pad(2),
-    sp(154),
-    width * 0.48,
-    schoolSize,
-    13,
-  );
-
-  roundedRect(ctx, width - margin - s(320), sp(76), s(320), sp(62), sp(31), "rgba(255, 255, 255, 0.08)");
-  ctx.fillStyle = silver;
-  ctx.font = `700 ${Math.max(15, fs(24))}px Arial`;
-  drawFittedText(
-    ctx,
-    formatWallpaperSize(width, height),
-    width - margin - s(284),
-    sp(115),
-    s(148),
-    Math.max(15, fs(24)),
-    12,
-  );
-  ctx.fillStyle = muted;
-  ctx.font = `400 ${Math.max(12, fs(18))}px Arial`;
-  drawFittedText(ctx, "DESKTOP", width - margin - s(124), sp(115), s(96), Math.max(12, fs(18)), 10);
-
-  const boardTop = Math.max(sp(196), height * 0.22);
-  const boardBottom = height - Math.max(42, sp(72));
-  const boardHeight = boardBottom - boardTop;
-  const wallpaperDays = getWallpaperDays(entries, settings);
-  const rowGap = Math.max(8, sp(14));
-  const rowWidth = width - margin * 2;
-  const dayWidth = Math.max(pad(142), rowWidth * 0.11);
-  const scheduleWidth = rowWidth - dayWidth - pad(48);
-  const itemGap = Math.max(8, sp(14));
-  const maxColumns = Math.max(
-    1,
-    Math.floor((scheduleWidth + itemGap) / (Math.max(s(250), 150) + itemGap)),
-  );
-  const rowHeights = allocateRowHeights(
-    boardHeight,
-    rowGap,
-    wallpaperDays.map((day) =>
-      Math.max(1, Math.ceil(entriesForDay(entries, day).length / maxColumns)),
-    ),
-    Math.max(sp(92), 68),
-  );
-  const cardColors: WallpaperCardColors = {
-    card,
-    time: palette.time,
-    title: soft,
-    detail: muted,
-  };
-
-  wallpaperDays.forEach((day, index) => {
-    const x = margin;
-    const rowHeight = rowHeights[index];
-    const y =
-      boardTop +
-      rowHeights.slice(0, index).reduce((sum, height) => sum + height, 0) +
-      index * rowGap;
-    const dayEntries = entriesForDay(entries, day);
-    const rowColor = index % 2 === 0 ? panel : panelAlt;
-
-    ctx.shadowColor = "rgba(0, 0, 0, 0.24)";
-    ctx.shadowBlur = sp(24);
-    ctx.shadowOffsetY = sp(10);
-    roundedRect(ctx, x, y, rowWidth, rowHeight, sp(24), rowColor);
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-
-    ctx.fillStyle = silver;
-    ctx.font = `700 ${Math.max(18, fs(settings.wallpaperDayLabelSize * 0.72))}px Arial`;
-    drawFittedText(
-      ctx,
-      day.slice(0, 3).toUpperCase(),
-      x + pad(24),
-      y + sp(48),
-      dayWidth - pad(40),
-      Math.max(18, fs(settings.wallpaperDayLabelSize * 0.72)),
-      14,
-    );
-    ctx.fillStyle = muted;
-    ctx.font = `700 ${Math.max(9, fs(14))}px Arial`;
-    drawFittedText(
-      ctx,
-      `${dayEntries.length} ITEM${dayEntries.length === 1 ? "" : "S"}`,
-      x + pad(26),
-      y + sp(76),
-      dayWidth - pad(44),
-      Math.max(9, fs(14)),
-      8,
-    );
-    ctx.fillStyle = line;
-    ctx.fillRect(x + dayWidth, y + sp(24), Math.max(1, s(2)), rowHeight - sp(48));
-
-    const scheduleX = x + dayWidth + pad(24);
-    const scheduleY = y + sp(18);
-    const scheduleHeight = rowHeight - sp(36);
-    const visibleEntries = dayEntries;
-    const columnCount = Math.max(1, Math.min(maxColumns, visibleEntries.length));
-    const gridRowCount = Math.max(1, Math.ceil(visibleEntries.length / columnCount));
-    const itemWidth =
-      (scheduleWidth - itemGap * Math.max(0, columnCount - 1)) / columnCount;
-    const itemHeight = Math.max(
-      1,
-      (scheduleHeight - itemGap * Math.max(0, gridRowCount - 1)) / gridRowCount,
-    );
-    const itemY = scheduleY;
-
-    if (dayEntries.length === 0) {
-      roundedRect(ctx, scheduleX, itemY, scheduleWidth, Math.max(sp(64), itemHeight), sp(16), palette.emptyPanel);
-      ctx.fillStyle = muted;
-      ctx.font = `700 ${Math.max(11, fs(18))}px Arial`;
-      drawFittedText(ctx, "No scheduled class", scheduleX + pad(18), itemY + itemHeight / 2 + sp(6), scheduleWidth - pad(36), Math.max(11, fs(18)), 9);
-      return;
-    }
-
-    visibleEntries.forEach((entry, entryIndex) => {
-      const columnIndex = entryIndex % columnCount;
-      const gridRowIndex = Math.floor(entryIndex / columnCount);
-      const itemX = scheduleX + columnIndex * (itemWidth + itemGap);
-      const gridItemY = itemY + gridRowIndex * (itemHeight + itemGap);
-      drawReadableScheduleCard(
-        ctx,
-        entry,
-        itemX,
-        gridItemY,
-        itemWidth,
-        itemHeight,
-        scale * 0.72,
-        cardColors,
-        settings.wallpaperCardTextSize,
-        profile,
-      );
-    });
-  });
-}
-
-function drawReadableScheduleCard(
-  ctx: CanvasRenderingContext2D,
-  entry: ScheduleEntry,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  scale = 1,
-  colors: WallpaperCardColors = {
-    card: "#222934",
-    time: "#3b4654",
-    title: "#fbfdff",
-    detail: "#c6d1dc",
-  },
-  cardTextSize = 28,
-  profile: WallpaperLayoutProfile = getWallpaperLayoutProfile("Balanced"),
-) {
-  const accent = getEntryAccentColor(entry);
-  const padScale = scale * profile.paddingScale;
-  const fontScale = scale * profile.fontScale;
-  const pad = (value: number) => value * padScale;
-  const fs = (value: number) => value * fontScale;
-  const timeWidth = Math.max(pad(116), width * 0.25);
-  const contentX = x + timeWidth + pad(22);
-  const compactCard = height < pad(64);
-  const titleSize = Math.max(
-    7,
-    Math.min(fs(cardTextSize), height * (compactCard ? 0.42 : 0.3)),
-  );
-  const detailSize = Math.max(7, Math.min(fs(Math.round(cardTextSize * 0.58)), height * 0.2));
-  const timeSize = Math.max(7, Math.min(fs(Math.round(cardTextSize * 0.62)), height * 0.22));
-  const endTimeSize = Math.max(7, Math.min(fs(Math.round(cardTextSize * 0.48)), height * 0.18));
-  const verticalPad = Math.min(pad(7), Math.max(2, height * 0.12));
-
-  ctx.shadowColor = "rgba(0, 0, 0, 0.22)";
-  ctx.shadowBlur = pad(10);
-  ctx.shadowOffsetY = pad(3);
-  roundedRect(ctx, x, y, width, height, Math.min(pad(16), height * 0.24), colors.card);
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
-
-  ctx.fillStyle = accent;
-  ctx.fillRect(x, y, Math.max(4, pad(8)), height);
-
-  roundedRect(
-    ctx,
-    x + pad(18),
-    y + verticalPad,
-    timeWidth - pad(30),
-    Math.max(1, height - verticalPad * 2),
-    Math.min(pad(12), height * 0.2),
-    colors.time,
-  );
-  ctx.fillStyle = colors.title;
-  ctx.font = `700 ${timeSize}px Arial`;
-  drawFittedText(
-    ctx,
-    formatTime(entry.start),
-    x + pad(30),
-    y + height / 2 + (compactCard ? timeSize * 0.34 : -endTimeSize * 0.25),
-    timeWidth - pad(54),
-    timeSize,
-    8,
-  );
-  if (!compactCard) {
-    ctx.fillStyle = colors.detail;
-    ctx.font = `700 ${endTimeSize}px Arial`;
-    drawFittedText(
-      ctx,
-      formatTime(entry.end),
-      x + pad(30),
-      y + height / 2 + endTimeSize * 1.25,
-      timeWidth - pad(54),
-      endTimeSize,
-      7,
-    );
-  }
-
-  ctx.fillStyle = colors.title;
-  ctx.font = `700 ${titleSize}px Arial`;
-  drawFittedText(
-    ctx,
-    entry.title.toUpperCase(),
-    contentX,
-    y + height / 2 + (compactCard ? titleSize * 0.34 : -detailSize * 0.35),
-    width - (contentX - x) - pad(18),
-    titleSize,
-    9,
-  );
-
-  if (!compactCard) {
-    ctx.fillStyle = colors.detail;
-    ctx.font = `700 ${detailSize}px Arial`;
-    drawFittedText(
-      ctx,
-      [entry.code, entry.room].filter(Boolean).join(" - ") || entry.type,
-      contentX,
-      y + height / 2 + detailSize * 1.05,
-      width - (contentX - x) - pad(18),
-      detailSize,
-      7,
-    );
-  }
-}
-
-function roundedRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number,
-  color: string,
-) {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.roundRect(x, y, width, height, radius);
-  ctx.fill();
-}
-
-function drawFittedText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  maxWidth: number,
-  fontSize: number,
-  minSize: number,
-) {
-  let size = fontSize;
-  while (ctx.measureText(text).width > maxWidth && size > minSize) {
-    size -= 1;
-    ctx.font = ctx.font.replace(/\d+px/, `${size}px`);
-  }
-  ctx.fillText(text || "-", x, y);
-}
-
-function PhonePreviewDialog({
-  settings,
-  setSettings,
-  entries,
-  sizePreset,
-  onClose,
-  onDownload,
-}: {
-  settings: ScheduleSettings;
-  setSettings: (updater: (current: ScheduleSettings) => ScheduleSettings) => void;
-  entries: ScheduleEntry[];
-  sizePreset: SelectedWallpaperSize;
-  onClose: () => void;
-  onDownload: (format?: WallpaperExportFormat) => void | Promise<void>;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/72 px-4 py-5 backdrop-blur-sm sm:px-6"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="phone-preview-title"
-    >
-      <div className="mx-auto flex min-h-full w-full max-w-7xl items-center justify-center">
-        <div className="w-full rounded-2xl border border-white/10 bg-surface p-4 shadow-[0_32px_110px_-30px_rgba(0,0,0,0.7)] sm:p-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2
-                id="phone-preview-title"
-                className="text-lg font-semibold text-foreground"
-              >
-                Wallpaper Preview
-              </h2>
-              <p className="mt-1 text-sm text-muted">
-                {sizePreset.label} -{" "}
-                {formatWallpaperSize(sizePreset.width, sizePreset.height)} -{" "}
-                {settings.wallpaperLayoutMode}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="primary-button"
-                onClick={() => onDownload(settings.wallpaperExportFormat)}
-              >
-                <ImageDown aria-hidden="true" className="size-4" />
-                Download {settings.wallpaperExportFormat}
-              </button>
-              <button
-                className="secondary-button"
-                onClick={() =>
-                  onDownload(settings.wallpaperExportFormat === "PNG" ? "JPG" : "PNG")
-                }
-              >
-                <ImageDown aria-hidden="true" className="size-4" />
-                {settings.wallpaperExportFormat === "PNG" ? "JPG" : "PNG"}
-              </button>
-              <button
-                className="secondary-button"
-                aria-label="Close phone preview"
-                onClick={onClose}
-              >
-                <X aria-hidden="true" className="size-4" />
-                Close
-              </button>
-            </div>
-          </div>
-          <div className="grid gap-5 lg:grid-cols-[320px_1fr] lg:items-start">
-            <div className="neo-inset p-4 lg:max-h-[78vh] lg:overflow-y-auto">
-              <WallpaperControls
-                settings={settings}
-                setSettings={setSettings}
-                sizePreset={sizePreset}
-              />
-            </div>
-            <WallpaperCanvasPreview
-              settings={settings}
-              entries={entries}
-              sizePreset={sizePreset}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function WallpaperCanvasPreview({
-  settings,
-  entries,
-  sizePreset,
-}: {
-  settings: ScheduleSettings;
-  entries: ScheduleEntry[];
-  sizePreset: SelectedWallpaperSize;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const isPortrait = sizePreset.height >= sizePreset.width;
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      return;
-    }
-
-    canvas.width = sizePreset.width;
-    canvas.height = sizePreset.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return;
-    }
-
-    drawWallpaper(ctx, canvas.width, canvas.height, settings, entries);
-  }, [entries, settings, sizePreset]);
-
-  return (
-    <div className="mx-auto w-full" style={{ maxWidth: isPortrait ? 430 : 920 }}>
-      <div
-        className={
-          isPortrait
-            ? "rounded-[42px] bg-[#08080a] p-3 shadow-[0_38px_90px_-36px_rgba(0,0,0,0.62)] ring-1 ring-white/10"
-            : "rounded-[28px] bg-[#121316] p-3 shadow-[0_38px_90px_-36px_rgba(0,0,0,0.62)] ring-1 ring-white/10"
-        }
-      >
-        <canvas
-          ref={canvasRef}
-          className={
-            isPortrait
-              ? "block h-auto w-full rounded-[32px]"
-              : "block h-auto w-full rounded-[18px]"
-          }
-          style={{ aspectRatio: `${sizePreset.width} / ${sizePreset.height}` }}
-        />
-      </div>
-      <div className="neo-card mt-3 p-4 text-sm leading-6 text-muted">
-        This canvas uses the exact wallpaper renderer that creates the downloaded file.
-      </div>
-    </div>
-  );
 }

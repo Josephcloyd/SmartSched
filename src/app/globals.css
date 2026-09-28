@@ -57,8 +57,9 @@ body {
 html,
 body {
   width: 100%;
-  max-width: 100%;
+  max-width: 100vw;
   overflow-x: hidden;
+  position: relative;
 }
 
 .neo-card {
@@ -68,8 +69,8 @@ body {
   border-radius: 16px;
   background: var(--surface);
   box-shadow:
-    12px 12px 28px var(--neo-shadow),
-    -12px -12px 28px var(--neo-highlight);
+    8px 8px 20px var(--neo-shadow),
+    -8px -8px 20px var(--neo-highlight);
 }
 
 .neo-inset {
@@ -79,8 +80,8 @@ body {
   border-radius: 16px;
   background: var(--surface-2);
   box-shadow:
-    inset 7px 7px 14px var(--neo-soft-shadow),
-    inset -7px -7px 14px var(--neo-highlight);
+    inset 5px 5px 12px var(--neo-soft-shadow),
+    inset -5px -5px 12px var(--neo-highlight);
 }
 
 :root {
@@ -232,14 +233,24 @@ textarea:focus-visible {
   border-radius: 5px;
 }
 
-@media (max-width: 380px) {
+@media (max-width: 640px) {
   .neo-card {
     border-radius: 14px;
+    box-shadow:
+      4px 4px 10px var(--neo-shadow),
+      -4px -4px 10px var(--neo-highlight);
+  }
+
+  .neo-inset {
+    border-radius: 12px;
+    box-shadow:
+      inset 3px 3px 8px var(--neo-soft-shadow),
+      inset -3px -3px 8px var(--neo-highlight);
   }
 
   .tool-button,
   .primary-button,
   .secondary-button {
-    padding-inline: 11px;
+    padding-inline: 10px;
   }
 }

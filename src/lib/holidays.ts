@@ -22,6 +22,25 @@ export type DetectedHolidayLocation = {
   subdivisionName: string;
 };
 
+export const popularCountries = [
+  { code: "PH", name: "Philippines" },
+  { code: "US", name: "United States" },
+  { code: "CA", name: "Canada" },
+  { code: "AU", name: "Australia" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "JP", name: "Japan" },
+  { code: "SG", name: "Singapore" },
+  { code: "KR", name: "South Korea" },
+  { code: "MY", name: "Malaysia" },
+  { code: "ID", name: "Indonesia" },
+  { code: "TH", name: "Thailand" },
+  { code: "VN", name: "Vietnam" },
+  { code: "DE", name: "Germany" },
+  { code: "FR", name: "France" },
+  { code: "IN", name: "India" },
+  { code: "NZ", name: "New Zealand" },
+] as const;
+
 export const defaultHolidayCalendar: HolidayCalendar = {
   enabled: true,
   countryCode: "",
@@ -30,6 +49,7 @@ export const defaultHolidayCalendar: HolidayCalendar = {
   subdivisionName: "",
   lastUpdated: "",
   holidays: [],
+  customBreaks: [],
 };
 
 export function normalizeHolidayCalendar(
@@ -52,6 +72,23 @@ export function normalizeHolidayCalendar(
         }))
     : [];
 
+  const customBreaks = Array.isArray(value?.customBreaks)
+    ? value.customBreaks
+        .filter(
+          (b) =>
+            typeof b?.id === "string" &&
+            typeof b?.name === "string" &&
+            typeof b?.startDate === "string" &&
+            typeof b?.endDate === "string",
+        )
+        .map((b) => ({
+          id: b.id,
+          name: b.name.trim() || "School Break",
+          startDate: b.startDate,
+          endDate: b.endDate,
+        }))
+    : [];
+
   return {
     enabled: value?.enabled !== false,
     countryCode: String(value?.countryCode || "").trim().toUpperCase().slice(0, 2),
@@ -60,6 +97,7 @@ export function normalizeHolidayCalendar(
     subdivisionName: String(value?.subdivisionName || "").trim(),
     lastUpdated: String(value?.lastUpdated || ""),
     holidays,
+    customBreaks,
   };
 }
 
@@ -76,7 +114,23 @@ export function holidayForDate(calendar: HolidayCalendar, date: Date) {
   }
 
   const dateKey = formatLocalDateKey(date);
-  return calendar.holidays.find((holiday) => holiday.date === dateKey);
+  const publicHoliday = calendar.holidays.find((holiday) => holiday.date === dateKey);
+  if (publicHoliday) {
+    return publicHoliday;
+  }
+
+  const customBreak = calendar.customBreaks?.find(
+    (b) => dateKey >= b.startDate && dateKey <= b.endDate,
+  );
+  if (customBreak) {
+    return {
+      date: dateKey,
+      name: customBreak.name,
+      countryCode: calendar.countryCode || "LOCAL",
+    };
+  }
+
+  return undefined;
 }
 
 export function upcomingHolidays(calendar: HolidayCalendar, limit = 4) {
