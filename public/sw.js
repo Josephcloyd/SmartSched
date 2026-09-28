@@ -1,4 +1,4 @@
-const CACHE_NAME = "smartsched-local-v20";
+const CACHE_NAME = "smartsched-local-v21";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -24,11 +24,25 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  const url = new URL(event.request.url);
+  if (!url.protocol.startsWith("http")) {
+    return;
+  }
+
+  // Avoid caching development HMR or WebSocket endpoints
+  if (url.pathname.includes("webpack-hmr")) {
+    return;
+  }
+
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        if (response && response.status === 200 && response.type === "basic") {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, copy).catch(() => undefined);
+          });
+        }
         return response;
       })
       .catch(() => caches.match(event.request).then((cached) => cached || caches.match("/"))),
