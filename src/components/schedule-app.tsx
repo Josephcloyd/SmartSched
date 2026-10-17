@@ -4,7 +4,6 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarCheck2,
   CalendarDays,
-  ClipboardCheck,
   Ellipsis,
   MoonStar,
   Plus,
@@ -16,8 +15,6 @@ import {
   scheduleTypes,
   wallpaperSizePresets,
   type AppTab,
-  type AttendanceRecord,
-  type AttendanceStatus,
   type DayName,
   type HolidayCalendar,
   type ScheduleEntry,
@@ -29,7 +26,6 @@ import {
   defaultHolidayCalendar,
   detectHolidayLocation,
   fetchPublicHolidays,
-  formatLocalDateKey,
   holidayCalendarNeedsRefresh,
   holidayForDate,
   normalizeHolidayCalendar,
@@ -58,16 +54,11 @@ import {
 } from "@/components/wallpaper/wallpaper-modal";
 import { EntryFormSheet, type EntryFormValues } from "@/components/schedule/entry-form-sheet";
 import { ScheduleView } from "@/components/schedule/schedule-view";
-import {
-  AttendanceOverview,
-  computeAttendanceStats,
-} from "@/components/attendance/attendance-tracker";
 import { TodayView } from "@/components/today/today-view";
 import { MoreView } from "@/components/more/more-view";
 import { FeedbackWidget } from "@/components/feedback-widget";
 
 const storageKey = "smartsched.local.schedule.v1";
-const attendanceStorageKey = "smartsched.local.attendance.v1";
 const notifiedKey = "smartsched.local.notified.v1";
 const themeKey = "smartsched.local.theme.v1";
 
@@ -98,13 +89,11 @@ const blankEntry: EntryFormValues = {
   type: "Class",
   reminderMinutes: 15,
   accentColor: "#256f53",
-  maxAbsences: 3,
 };
 
 const tabs: { id: AppTab; label: string; icon: LucideIcon }[] = [
   { id: "today", label: "Today", icon: CalendarCheck2 },
   { id: "schedule", label: "Schedule", icon: CalendarDays },
-  { id: "attendance", label: "Attendance", icon: ClipboardCheck },
   { id: "more", label: "More", icon: Ellipsis },
 ];
 
@@ -129,7 +118,6 @@ type RawStoredSchedule = {
   settings?: Partial<ScheduleSettings>;
   entries?: (ScheduleEntry | { day?: DayName; days?: DayName[] })[];
   holidayCalendar?: Partial<HolidayCalendar>;
-  attendanceRecords?: AttendanceRecord[];
 };
 
 function readStoredSchedule(): StoredSchedule | null {
@@ -192,8 +180,6 @@ function normalizeEntry(raw: unknown): ScheduleEntry {
       typeof entry.accentColor === "string"
         ? entry.accentColor
         : typeStyle[entry.type as ScheduleType] || "#256f53",
-    maxAbsences:
-      typeof entry.maxAbsences === "number" ? Math.max(1, entry.maxAbsences) : 3,
   };
 }
 
@@ -244,7 +230,6 @@ function getNotificationPermission(): NotificationPermission | "unsupported" {
 export function ScheduleApp() {
   const [settings, setSettings] = useState<ScheduleSettings>(defaultSettings);
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
-  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [tab, setTab] = useState<AppTab>("today");
   const [viewMode, setViewMode] = useState<ScheduleViewMode>("day");
   const [holidayCalendar, setHolidayCalendar] = useState<HolidayCalendar>(defaultHolidayCalendar);
@@ -279,18 +264,6 @@ export function ScheduleApp() {
         setSettings(storedSchedule.settings);
         setEntries(storedSchedule.entries);
         setHolidayCalendar(storedSchedule.holidayCalendar);
-      }
-
-      try {
-        const storedAttendance = localStorage.getItem(attendanceStorageKey);
-        if (storedAttendance) {
-          const parsed = JSON.parse(storedAttendance) as AttendanceRecord[];
-          if (Array.isArray(parsed)) {
-            setAttendanceRecords(parsed);
-          }
-        }
-      } catch {
-        // ignore
       }
 
       const storedTheme = window.localStorage.getItem(themeKey);
@@ -339,12 +312,6 @@ export function ScheduleApp() {
       JSON.stringify({ settings, entries, holidayCalendar }),
     );
   }, [settings, entries, holidayCalendar, storageReady]);
-
-  // Sync attendance to localStorage
-  useEffect(() => {
-    if (!storageReady) return;
-    localStorage.setItem(attendanceStorageKey, JSON.stringify(attendanceRecords));
-  }, [attendanceRecords, storageReady]);
 
   // Sync theme
   useEffect(() => {
@@ -409,16 +376,8 @@ export function ScheduleApp() {
     () => upcomingHolidays(holidayCalendar),
     [holidayCalendar],
   );
-  const attendanceRisk = useMemo(
-    () =>
-      computeAttendanceStats(entries, attendanceRecords).filter(
-        (stat) => stat.isCritical || stat.isExceeded,
-      ).length,
-    [entries, attendanceRecords],
-  );
 
   const todayName = now ? dayNameForDate(now) : "Monday";
-  const todayDateKey = now ? formatLocalDateKey(now) : "";
   const nowMinutes = now ? now.getHours() * 60 + now.getMinutes() : undefined;
   const holidayToday = useMemo(
     () => (now ? holidayForDate(holidayCalendar, now) : undefined),
@@ -470,7 +429,6 @@ export function ScheduleApp() {
       title: values.title.trim(),
       code: values.code.trim(),
       room: values.room.trim(),
-      maxAbsences: Math.max(1, values.maxAbsences || 3),
     };
     const conflict = hasTimeConflict(saved, entries);
 
@@ -524,37 +482,6 @@ export function ScheduleApp() {
       setEntries([]);
       setFormState(null);
       setMessage("All classes deleted.");
-    }
-  }
-
-  function handleRecordAttendance(entryId: string, status: AttendanceStatus) {
-    setAttendanceRecords((current) => {
-      const existingIdx = current.findIndex(
-        (r) => r.entryId === entryId && r.date === todayDateKey,
-      );
-      if (existingIdx >= 0) {
-        const next = [...current];
-        next[existingIdx] = { ...next[existingIdx], status };
-        return next;
-      }
-      return [
-        ...current,
-        {
-          id: uid(),
-          entryId,
-          date: todayDateKey,
-          status,
-        },
-      ];
-    });
-    const title = entries.find((entry) => entry.id === entryId)?.title ?? "this class";
-    setMessage(`Marked ${status.toLowerCase()} for ${title}.`);
-  }
-
-  function handleClearAttendance() {
-    if (window.confirm("Reset all attendance history? This can't be undone.")) {
-      setAttendanceRecords([]);
-      setMessage("Attendance history reset.");
     }
   }
 
@@ -637,7 +564,7 @@ export function ScheduleApp() {
     downloadText(
       "smartsched-backup.json",
       JSON.stringify(
-        { settings, entries, holidayCalendar, attendanceRecords },
+        { settings, entries, holidayCalendar },
         null,
         2,
       ),
@@ -660,9 +587,6 @@ export function ScheduleApp() {
         setSettings(normalizeSettings(parsed.settings));
         setEntries(parsed.entries.map(normalizeEntry));
         setHolidayCalendar(normalizeHolidayCalendar(parsed.holidayCalendar));
-        if (Array.isArray(parsed.attendanceRecords)) {
-          setAttendanceRecords(parsed.attendanceRecords);
-        }
         setMessage("Backup restored on this device.");
       } catch {
         setMessage("That file isn't a valid SmartSched backup.");
@@ -746,7 +670,6 @@ export function ScheduleApp() {
   }
 
   const showFab = (tab === "today" || tab === "schedule") && entries.length > 0;
-  const hasAttendanceRisk = attendanceRisk > 0;
 
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-background text-foreground">
@@ -782,9 +705,6 @@ export function ScheduleApp() {
               >
                 <Icon aria-hidden="true" className="size-4" />
                 {label}
-                {id === "attendance" && hasAttendanceRisk ? (
-                  <span className="size-2 rounded-full bg-danger" aria-label="Subjects at risk" />
-                ) : null}
               </button>
             ))}
           </nav>
@@ -816,12 +736,10 @@ export function ScheduleApp() {
             {tab === "today" ? (
               <TodayView
                 entries={entries}
-                records={attendanceRecords}
                 now={now}
                 todayName={todayName}
-                todayDateKey={todayDateKey}
                 holidayToday={holidayToday}
-                onRecordAttendance={handleRecordAttendance}
+                onEditClass={openEditForm}
                 onAddClass={() => openAddForm(todayName)}
                 onOpenSchedule={() => goToTab("schedule")}
                 onOpenWallpaper={() => setPreviewOpen(true)}
@@ -840,13 +758,6 @@ export function ScheduleApp() {
                 onEdit={openEditForm}
                 onDuplicate={duplicateEntry}
                 onDelete={deleteEntry}
-              />
-            ) : tab === "attendance" ? (
-              <AttendanceOverview
-                entries={sortedEntries}
-                records={attendanceRecords}
-                onClearAttendance={handleClearAttendance}
-                onAddClass={() => openAddForm()}
               />
             ) : (
               <MoreView
@@ -896,7 +807,7 @@ export function ScheduleApp() {
         className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/90 backdrop-blur-lg md:hidden"
         aria-label="Main"
       >
-        <div className="mx-auto grid max-w-md grid-cols-4 px-2 pt-1.5">
+        <div className="mx-auto grid max-w-sm grid-cols-3 px-2 pt-1.5">
           {tabs.map(({ id, label, icon: Icon }) => {
             const active = tab === id;
             return (
@@ -915,12 +826,6 @@ export function ScheduleApp() {
                   }`}
                 >
                   <Icon aria-hidden="true" className="size-5" strokeWidth={active ? 2.4 : 2} />
-                  {id === "attendance" && hasAttendanceRisk ? (
-                    <span
-                      className="absolute right-3 top-0.5 size-2 rounded-full bg-danger ring-2 ring-surface"
-                      aria-label="Subjects at risk"
-                    />
-                  ) : null}
                 </span>
                 {label}
               </button>
