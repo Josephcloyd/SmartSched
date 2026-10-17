@@ -2,128 +2,228 @@
 
 import { useMemo } from "react";
 import type { DayName, ScheduleEntry } from "@/lib/types";
-import { formatTime, timeToMinutes } from "@/lib/utils";
+import { formatTime, formatTimeRange, timeToMinutes } from "@/lib/utils";
 import { getEntryAccentColor } from "@/lib/wallpaper-renderer";
+import { tintAccent } from "@/components/schedule/schedule-row";
 
-const START_HOUR = 7; // 7:00 AM
-const END_HOUR = 20; // 8:00 PM
-const HOUR_HEIGHT = 64; // pixels per hour
-const TOTAL_GRID_HEIGHT = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
+const HOUR_HEIGHT = 72; // pixels per hour
+const TIME_COLUMN = 56;
+const MIN_DAY_COLUMN = 118;
+
+type PlacedEntry = {
+  entry: ScheduleEntry;
+  start: number;
+  end: number;
+  lane: number;
+  lanes: number;
+};
+
+/** Splits overlapping classes into side-by-side lanes so none hide behind another. */
+function layoutDay(entries: ScheduleEntry[]): PlacedEntry[] {
+  const sorted = entries
+    .map((entry) => {
+      const start = timeToMinutes(entry.start);
+      return { entry, start, end: Math.max(timeToMinutes(entry.end), start + 15) };
+    })
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+
+  const placed: PlacedEntry[] = [];
+  let cluster: PlacedEntry[] = [];
+  let laneEnds: number[] = [];
+  let clusterEnd = -1;
+
+  const flush = () => {
+    cluster.forEach((item) => {
+      item.lanes = laneEnds.length;
+    });
+    placed.push(...cluster);
+    cluster = [];
+    laneEnds = [];
+    clusterEnd = -1;
+  };
+
+  for (const item of sorted) {
+    if (cluster.length > 0 && item.start >= clusterEnd) flush();
+    let lane = laneEnds.findIndex((laneEnd) => laneEnd <= item.start);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(item.end);
+    } else {
+      laneEnds[lane] = item.end;
+    }
+    cluster.push({ ...item, lane, lanes: 1 });
+    clusterEnd = Math.max(clusterEnd, item.end);
+  }
+  flush();
+
+  return placed;
+}
+
+function hourLabel(hour: number) {
+  const period = hour >= 12 && hour < 24 ? "PM" : "AM";
+  return `${hour % 12 || 12} ${period}`;
+}
 
 export function TimetableGrid({
   entries,
   visibleDays,
+  todayName,
+  nowMinutes,
   onEditEntry,
 }: {
   entries: ScheduleEntry[];
   visibleDays: DayName[];
+  todayName?: DayName;
+  nowMinutes?: number;
   onEditEntry: (entry: ScheduleEntry) => void;
 }) {
-  const hours = useMemo(() => {
-    const list: { label: string; hour: number }[] = [];
-    for (let h = START_HOUR; h <= END_HOUR; h += 1) {
-      const period = h >= 12 ? "PM" : "AM";
-      const h12 = h % 12 || 12;
-      list.push({ label: `${h12} ${period}`, hour: h });
-    }
-    return list;
-  }, []);
+  // Fit the grid to the actual schedule instead of a fixed 7 AM–8 PM window.
+  const { startHour, endHour } = useMemo(() => {
+    if (entries.length === 0) return { startHour: 7, endHour: 17 };
+    const earliest = Math.min(...entries.map((e) => timeToMinutes(e.start)));
+    const latest = Math.max(...entries.map((e) => timeToMinutes(e.end)));
+    const start = Math.max(0, Math.floor(earliest / 60));
+    const end = Math.min(24, Math.max(start + 4, Math.ceil(latest / 60)));
+    return { startHour: start, endHour: end };
+  }, [entries]);
+
+  const hours = useMemo(
+    () => Array.from({ length: endHour - startHour + 1 }, (_, index) => startHour + index),
+    [startHour, endHour],
+  );
+
+  const layouts = useMemo(
+    () =>
+      new Map(
+        visibleDays.map((day) => [day, layoutDay(entries.filter((e) => e.days.includes(day)))]),
+      ),
+    [entries, visibleDays],
+  );
+
+  const totalHeight = (endHour - startHour) * HOUR_HEIGHT;
+  const columns = `${TIME_COLUMN}px repeat(${visibleDays.length}, minmax(${MIN_DAY_COLUMN}px, 1fr))`;
+  const nowTop =
+    nowMinutes !== undefined && nowMinutes >= startHour * 60 && nowMinutes <= endHour * 60
+      ? ((nowMinutes - startHour * 60) / 60) * HOUR_HEIGHT + 8
+      : null;
 
   return (
-    <div className="w-full overflow-x-auto rounded-2xl border border-border bg-surface p-2 sm:p-4 shadow-sm">
-      <div className="min-w-[620px] select-none">
-        {/* Header row with day names */}
-        <div className="grid grid-cols-[60px_repeat(var(--col-count),minmax(0,1fr))] border-b border-border/80 pb-3" style={{ "--col-count": visibleDays.length } as React.CSSProperties}>
-          <div className="text-center text-xs font-bold uppercase tracking-wider text-muted">Time</div>
-          {visibleDays.map((day) => (
-            <div key={day} className="px-2 text-center text-xs font-bold text-foreground sm:text-sm">
-              <span className="hidden sm:inline">{day}</span>
-              <span className="sm:hidden">{day.slice(0, 3)}</span>
-            </div>
-          ))}
+    <div className="w-full overflow-x-auto rounded-2xl border border-border bg-surface">
+      <div style={{ minWidth: TIME_COLUMN + visibleDays.length * MIN_DAY_COLUMN }}>
+        {/* Header */}
+        <div
+          className="grid border-b border-border bg-surface"
+          style={{ gridTemplateColumns: columns }}
+        >
+          <div className="sticky left-0 z-10 bg-surface" />
+          {visibleDays.map((day) => {
+            const isToday = day === todayName;
+            return (
+              <div key={day} className="px-2 py-3 text-center">
+                <span
+                  className={`inline-flex items-center justify-center rounded-full px-3 py-1 text-sm font-semibold ${
+                    isToday ? "bg-primary-fill text-white" : "text-foreground"
+                  }`}
+                >
+                  <span className="hidden md:inline">{day}</span>
+                  <span className="md:hidden">{day.slice(0, 3)}</span>
+                </span>
+              </div>
+            );
+          })}
         </div>
 
-        {/* Timetable Body */}
-        <div
-          className="relative grid grid-cols-[60px_repeat(var(--col-count),minmax(0,1fr))]"
-          style={
-            {
-              "--col-count": visibleDays.length,
-              height: `${TOTAL_GRID_HEIGHT}px`,
-            } as React.CSSProperties
-          }
-        >
-          {/* Time markers column */}
-          <div className="relative border-r border-border/60">
-            {hours.map((item, idx) => (
+        {/* Body */}
+        <div className="relative grid" style={{ gridTemplateColumns: columns, height: totalHeight + 16 }}>
+          {/* Time labels */}
+          <div className="sticky left-0 z-20 border-r border-border bg-surface">
+            {hours.map((hour, index) => (
               <div
-                key={item.hour}
-                className="absolute right-2 -translate-y-2 text-[11px] font-semibold text-muted"
-                style={{ top: `${idx * HOUR_HEIGHT}px` }}
+                key={hour}
+                className="absolute right-2 -translate-y-1/2 text-[11px] font-semibold tabular-nums text-muted"
+                style={{ top: index * HOUR_HEIGHT + 8 }}
               >
-                {item.label}
+                {hourLabel(hour)}
               </div>
             ))}
           </div>
 
-          {/* Day columns */}
           {visibleDays.map((day) => {
-            const dayEntries = entries.filter((e) => e.days.includes(day));
-
+            const isToday = day === todayName;
             return (
               <div
                 key={day}
-                className="relative border-r border-border/40 last:border-r-0"
+                className={`relative border-r border-border/60 last:border-r-0 ${
+                  isToday ? "bg-primary/[0.04]" : ""
+                }`}
               >
-                {/* Horizontal hour guide lines */}
-                {hours.map((item, idx) => (
-                  <div
-                    key={item.hour}
-                    className="absolute inset-x-0 border-t border-border/30"
-                    style={{ top: `${idx * HOUR_HEIGHT}px` }}
-                  />
+                {hours.map((hour, index) => (
+                  <div key={hour}>
+                    <div
+                      className="absolute inset-x-0 border-t border-border/70"
+                      style={{ top: index * HOUR_HEIGHT + 8 }}
+                    />
+                    {index < hours.length - 1 ? (
+                      <div
+                        className="absolute inset-x-0 border-t border-dashed border-border/40"
+                        style={{ top: index * HOUR_HEIGHT + HOUR_HEIGHT / 2 + 8 }}
+                      />
+                    ) : null}
+                  </div>
                 ))}
 
-                {/* Scheduled class blocks */}
-                {dayEntries.map((entry) => {
-                  const startMins = timeToMinutes(entry.start);
-                  const endMins = timeToMinutes(entry.end);
-                  const clampedStart = Math.max(START_HOUR * 60, startMins);
-                  const clampedEnd = Math.min(END_HOUR * 60, Math.max(clampedStart + 20, endMins));
-                  const topPx = ((clampedStart - START_HOUR * 60) / 60) * HOUR_HEIGHT;
-                  const heightPx = Math.max(34, ((clampedEnd - clampedStart) / 60) * HOUR_HEIGHT);
+                {(layouts.get(day) ?? []).map(({ entry, start, end, lane, lanes }) => {
+                  const top = ((start - startHour * 60) / 60) * HOUR_HEIGHT + 8;
+                  const height = Math.max(30, ((end - start) / 60) * HOUR_HEIGHT - 3);
                   const accent = getEntryAccentColor(entry);
+                  const width = 100 / lanes;
 
                   return (
                     <button
                       key={`${entry.id}-${day}`}
                       type="button"
-                      className="group absolute inset-x-1 z-10 flex flex-col justify-between overflow-hidden rounded-xl border border-white/20 p-1.5 text-left text-white shadow-sm transition hover:z-20 hover:scale-[1.02] hover:shadow-md sm:p-2"
+                      className="absolute z-10 flex flex-col overflow-hidden rounded-xl border-l-4 px-2 py-1.5 text-left shadow-[var(--shadow-sm)] transition hover:z-20 hover:shadow-[var(--shadow-md)]"
                       style={{
-                        top: `${topPx}px`,
-                        height: `${heightPx}px`,
-                        backgroundColor: accent,
+                        top,
+                        height,
+                        left: `calc(${lane * width}% + 3px)`,
+                        width: `calc(${width}% - 6px)`,
+                        background: tintAccent(accent, 18),
+                        borderLeftColor: accent,
                       }}
                       onClick={() => onEditEntry(entry)}
-                      title={`${entry.title} (${formatTime(entry.start)} - ${formatTime(entry.end)})\n${[entry.code, entry.room].filter(Boolean).join(" - ")}`}
+                      title={`${entry.title}\n${formatTimeRange(entry.start, entry.end)}${
+                        entry.room ? `\n${entry.room}` : ""
+                      }`}
                     >
-                      <div className="min-w-0">
-                        <div className="flex items-center justify-between gap-1 text-[10px] font-bold opacity-90 sm:text-[11px]">
-                          <span className="truncate">{entry.code || entry.type}</span>
-                          <span className="shrink-0">{formatTime(entry.start)}</span>
-                        </div>
-                        <div className="truncate text-xs font-semibold sm:text-sm">
-                          {entry.title}
-                        </div>
-                      </div>
-                      {heightPx > 50 ? (
-                        <div className="truncate text-[10px] opacity-85 sm:text-[11px]">
-                          {entry.room || formatTime(entry.end)}
-                        </div>
+                      <span className="text-[11px] font-semibold tabular-nums text-muted">
+                        {formatTime(entry.start)}
+                      </span>
+                      <span
+                        className={`text-[13px] font-semibold leading-tight text-foreground ${
+                          height > 64 ? "line-clamp-2" : "line-clamp-1"
+                        }`}
+                      >
+                        {entry.title}
+                      </span>
+                      {height > 80 && (entry.room || entry.code) ? (
+                        <span className="mt-auto truncate text-[11px] font-medium text-muted">
+                          {entry.room || entry.code}
+                        </span>
                       ) : null}
                     </button>
                   );
                 })}
+
+                {isToday && nowTop !== null ? (
+                  <div
+                    className="pointer-events-none absolute inset-x-0 z-20 flex -translate-y-1/2 items-center"
+                    style={{ top: nowTop }}
+                  >
+                    <span className="-ml-1 size-2.5 rounded-full bg-danger" />
+                    <span className="h-0.5 flex-1 bg-danger" />
+                  </div>
+                ) : null}
               </div>
             );
           })}

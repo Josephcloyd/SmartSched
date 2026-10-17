@@ -5,7 +5,9 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  ClipboardCheck,
   HelpCircle,
+  MapPin,
   RotateCcw,
   ShieldAlert,
   XCircle,
@@ -14,12 +16,12 @@ import {
   attendanceStatuses,
   type AttendanceRecord,
   type AttendanceStatus,
-  type DayName,
   type ScheduleEntry,
 } from "@/lib/types";
-import { formatTime } from "@/lib/utils";
+import { formatTimeRange } from "@/lib/utils";
 import { getEntryAccentColor } from "@/lib/wallpaper-renderer";
-import { Panel } from "@/components/ui/form-controls";
+import { EmptyState, Metric } from "@/components/ui/form-controls";
+import { tintAccent } from "@/components/schedule/schedule-row";
 
 const statusIcons: Record<AttendanceStatus, typeof CheckCircle2> = {
   Present: CheckCircle2,
@@ -29,280 +31,317 @@ const statusIcons: Record<AttendanceStatus, typeof CheckCircle2> = {
   Suspended: AlertTriangle,
 };
 
-const statusColors: Record<AttendanceStatus, { bg: string; text: string; border: string }> = {
-  Present: {
-    bg: "bg-emerald-500/15",
-    text: "text-emerald-700 dark:text-emerald-300",
-    border: "border-emerald-500/40",
-  },
-  Late: {
-    bg: "bg-amber-500/15",
-    text: "text-amber-700 dark:text-amber-300",
-    border: "border-amber-500/40",
-  },
-  Absent: {
-    bg: "bg-rose-500/15",
-    text: "text-rose-700 dark:text-rose-300",
-    border: "border-rose-500/40",
-  },
-  Excused: {
-    bg: "bg-sky-500/15",
-    text: "text-sky-700 dark:text-sky-300",
-    border: "border-sky-500/40",
-  },
-  Suspended: {
-    bg: "bg-purple-500/15",
-    text: "text-purple-700 dark:text-purple-300",
-    border: "border-purple-500/40",
-  },
+// Shorter labels for the 5-across check-in row on narrow phones.
+const compactStatusLabels: Partial<Record<AttendanceStatus, string>> = {
+  Suspended: "No class",
 };
 
-export function AttendanceTracker({
+const statusColors: Record<AttendanceStatus, string> = {
+  Present: "border-emerald-500/50 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+  Late: "border-amber-500/50 bg-amber-500/15 text-amber-700 dark:text-amber-300",
+  Absent: "border-rose-500/50 bg-rose-500/15 text-rose-700 dark:text-rose-300",
+  Excused: "border-sky-500/50 bg-sky-500/15 text-sky-700 dark:text-sky-300",
+  Suspended: "border-purple-500/50 bg-purple-500/15 text-purple-700 dark:text-purple-300",
+};
+
+export type AttendanceStat = {
+  entry: ScheduleEntry;
+  presents: number;
+  lates: number;
+  absences: number;
+  excused: number;
+  cutsUsed: number;
+  maxCuts: number;
+  cutsRemaining: number;
+  isCritical: boolean;
+  isExceeded: boolean;
+  rate: number;
+  totalLogged: number;
+};
+
+export function computeAttendanceStats(
+  entries: ScheduleEntry[],
+  records: AttendanceRecord[],
+): AttendanceStat[] {
+  return entries.map((entry) => {
+    const entryRecords = records.filter((r) => r.entryId === entry.id);
+    const count = (status: AttendanceStatus) =>
+      entryRecords.filter((r) => r.status === status).length;
+    const presents = count("Present");
+    const lates = count("Late");
+    const absences = count("Absent");
+    const excused = count("Excused");
+    // Suspended classes didn't happen, so they don't count for or against the student.
+    const totalLogged = entryRecords.length - count("Suspended");
+
+    // Common school rule: 3 lates count as 1 absence.
+    const cutsUsed = absences + Math.floor(lates / 3);
+    const maxCuts = entry.maxAbsences || 3;
+    const cutsRemaining = Math.max(0, maxCuts - cutsUsed);
+
+    return {
+      entry,
+      presents,
+      lates,
+      absences,
+      excused,
+      cutsUsed,
+      maxCuts,
+      cutsRemaining,
+      isCritical: cutsUsed > 0 && cutsRemaining <= 1,
+      isExceeded: cutsUsed >= maxCuts,
+      rate:
+        totalLogged > 0
+          ? Math.round(((presents + excused + lates * 0.7) / totalLogged) * 100)
+          : 100,
+      totalLogged,
+    };
+  });
+}
+
+export function CheckInButtons({
+  entry,
+  current,
+  onRecord,
+}: {
+  entry: ScheduleEntry;
+  current?: AttendanceStatus;
+  onRecord: (entryId: string, status: AttendanceStatus) => void;
+}) {
+  return (
+    <div className="grid grid-cols-5 gap-1.5" role="group" aria-label={`Attendance for ${entry.title}`}>
+      {attendanceStatuses.map((status) => {
+        const selected = current === status;
+        const Icon = statusIcons[status];
+        return (
+          <button
+            key={status}
+            type="button"
+            aria-pressed={selected}
+            className={`flex min-h-[60px] flex-col items-center justify-center gap-1 rounded-xl border px-0.5 text-[11px] font-semibold transition active:scale-95 sm:min-h-14 sm:text-xs ${
+              selected
+                ? statusColors[status]
+                : "border-border bg-surface text-muted hover:border-primary/40 hover:text-foreground"
+            }`}
+            aria-label={status}
+            onClick={() => {
+              if ("vibrate" in navigator) navigator.vibrate(12);
+              onRecord(entry.id, status);
+            }}
+          >
+            <Icon aria-hidden="true" className="size-5 sm:size-[18px]" />
+            <span className="leading-tight sm:hidden">{compactStatusLabels[status] ?? status}</span>
+            <span className="hidden leading-tight sm:inline">{status}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function CheckInCard({
+  entry,
+  current,
+  status,
+  onRecord,
+}: {
+  entry: ScheduleEntry;
+  current?: AttendanceStatus;
+  status?: "now" | "done" | "upcoming";
+  onRecord: (entryId: string, status: AttendanceStatus) => void;
+}) {
+  const accent = getEntryAccentColor(entry);
+
+  return (
+    <article
+      className={`overflow-hidden rounded-2xl border bg-surface ${
+        status === "now" ? "border-primary/60 ring-2 ring-primary/15" : "border-border"
+      }`}
+    >
+      <div className="flex items-stretch" style={{ background: tintAccent(accent, 8) }}>
+        <span className="w-1.5 shrink-0" style={{ backgroundColor: accent }} aria-hidden="true" />
+        <div className="min-w-0 flex-1 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-muted">
+            <span className="tabular-nums">{formatTimeRange(entry.start, entry.end)}</span>
+            {status === "now" ? (
+              <span className="rounded-full bg-primary-fill px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
+                Now
+              </span>
+            ) : status === "done" ? (
+              <span className="text-muted/80">· Done</span>
+            ) : null}
+          </div>
+          <h3 className="mt-0.5 break-words text-base font-semibold text-foreground">{entry.title}</h3>
+          {entry.room || entry.code ? (
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[13px] text-muted">
+              {entry.room ? (
+                <span className="inline-flex items-center gap-1">
+                  <MapPin aria-hidden="true" className="size-3.5" />
+                  {entry.room}
+                </span>
+              ) : null}
+              {entry.code ? <span>{entry.code}</span> : null}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      <div className="border-t border-border/70 p-2.5">
+        <CheckInButtons entry={entry} current={current} onRecord={onRecord} />
+      </div>
+    </article>
+  );
+}
+
+export function AttendanceOverview({
   entries,
   records,
-  todayName,
-  todayDateKey,
-  onRecordAttendance,
   onClearAttendance,
+  onAddClass,
 }: {
   entries: ScheduleEntry[];
   records: AttendanceRecord[];
-  todayName: DayName;
-  todayDateKey: string;
-  onRecordAttendance: (entryId: string, status: AttendanceStatus) => void;
   onClearAttendance: () => void;
+  onAddClass: () => void;
 }) {
-  const todayEntries = useMemo(
-    () => entries.filter((e) => e.days.includes(todayName)),
-    [entries, todayName],
+  const stats = useMemo(() => computeAttendanceStats(entries, records), [entries, records]);
+  const counted = records.filter((r) => r.status !== "Suspended");
+  const overallRate =
+    counted.length === 0
+      ? 100
+      : Math.round(
+          (counted.filter((r) => r.status !== "Absent").length / counted.length) * 100,
+        );
+  const atRisk = stats.filter((s) => s.isCritical || s.isExceeded).length;
+  // Show subjects that need attention first.
+  const sorted = [...stats].sort(
+    (a, b) => Number(b.isExceeded) - Number(a.isExceeded) || Number(b.isCritical) - Number(a.isCritical),
   );
 
-  // Group attendance records by entry
-  const statsByEntry = useMemo(() => {
-    return entries.map((entry) => {
-      const entryRecords = records.filter((r) => r.entryId === entry.id);
-      const presents = entryRecords.filter((r) => r.status === "Present").length;
-      const lates = entryRecords.filter((r) => r.status === "Late").length;
-      const absences = entryRecords.filter((r) => r.status === "Absent").length;
-      const excused = entryRecords.filter((r) => r.status === "Excused").length;
-      const suspended = entryRecords.filter((r) => r.status === "Suspended").length;
-      const totalLogged = entryRecords.length;
-
-      // Academic standard: 3 lates count as 1 absence
-      const cutsUsed = absences + Math.floor(lates / 3);
-      const maxCuts = entry.maxAbsences || 3;
-      const cutsRemaining = Math.max(0, maxCuts - cutsUsed);
-      const isCritical = cutsRemaining <= 1 && totalLogged > 0;
-      const isExceeded = cutsUsed >= maxCuts && totalLogged > 0;
-
-      const rate = totalLogged > 0
-        ? Math.round(((presents + excused + lates * 0.7) / totalLogged) * 100)
-        : 100;
-
-      return {
-        entry,
-        presents,
-        lates,
-        absences,
-        excused,
-        suspended,
-        cutsUsed,
-        maxCuts,
-        cutsRemaining,
-        isCritical,
-        isExceeded,
-        rate,
-        totalLogged,
-      };
-    });
-  }, [entries, records]);
-
-  // Overall attendance rate
-  const overallRate = useMemo(() => {
-    if (records.length === 0) return 100;
-    const good = records.filter(
-      (r) => r.status === "Present" || r.status === "Excused" || r.status === "Late",
-    ).length;
-    return Math.round((good / records.length) * 100);
-  }, [records]);
-
   return (
-    <div className="grid gap-4 sm:gap-5">
-      {/* Today's Check-In Panel */}
-      <Panel
-        title={`Today's Attendance Check-in (${todayName})`}
-        action={
-          <div className="flex items-center gap-2">
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary">
-              {overallRate}% Overall
-            </span>
-            {records.length > 0 ? (
-              <button
-                type="button"
-                className="text-xs font-semibold text-muted hover:text-danger flex items-center gap-1"
-                onClick={onClearAttendance}
-                title="Reset all attendance history"
-              >
-                <RotateCcw aria-hidden="true" className="size-3.5" />
-                Reset
-              </button>
-            ) : null}
-          </div>
-        }
-      >
-        {todayEntries.length === 0 ? (
-          <div className="neo-inset p-5 text-center text-sm text-muted">
-            No classes scheduled for today ({todayName}). Enjoy your free day!
-          </div>
-        ) : (
-          <div className="grid gap-3">
-            {todayEntries.map((entry) => {
-              const todayRecord = records.find(
-                (r) => r.entryId === entry.id && r.date === todayDateKey,
-              );
-              const accent = getEntryAccentColor(entry);
+    <div className="grid gap-4">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Attendance</h1>
+        <p className="mt-0.5 text-sm text-muted">
+          Track your absences per subject. 3 lates count as 1 absence.
+        </p>
+      </div>
 
-              return (
-                <div
-                  key={entry.id}
-                  className="rounded-xl border border-border bg-surface p-3 sm:p-4 shadow-sm"
-                  style={{ borderLeftWidth: "5px", borderLeftColor: accent }}
-                >
-                  <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-muted">
-                          {formatTime(entry.start)} – {formatTime(entry.end)}
-                        </span>
-                        {entry.code ? (
-                          <span className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-xs font-semibold text-foreground">
-                            {entry.code}
-                          </span>
-                        ) : null}
-                      </div>
-                      <h4 className="mt-0.5 text-base font-semibold text-foreground">
-                        {entry.title}
-                      </h4>
-                      {entry.room ? (
-                        <p className="text-xs text-muted">{entry.room}</p>
-                      ) : null}
-                    </div>
+      <div className="grid grid-cols-3 gap-2.5 sm:gap-4">
+        <Metric
+          label="Overall"
+          value={`${overallRate}%`}
+          tone={overallRate >= 90 ? "good" : overallRate >= 75 ? "warn" : "bad"}
+        />
+        <Metric label="Check-ins" value={String(records.length)} />
+        <Metric label="At risk" value={String(atRisk)} tone={atRisk > 0 ? "bad" : "default"} />
+      </div>
 
-                    {/* Quick status selector */}
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {attendanceStatuses.map((status) => {
-                        const isSelected = todayRecord?.status === status;
-                        const colors = statusColors[status];
-                        const Icon = statusIcons[status];
-
-                        return (
-                          <button
-                            key={status}
-                            type="button"
-                            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
-                              isSelected
-                                ? `${colors.bg} ${colors.text} ${colors.border} ring-2 ring-primary/20 font-bold`
-                                : "border-border/80 bg-surface-2 text-muted hover:border-primary/50"
-                            }`}
-                            onClick={() => onRecordAttendance(entry.id, status)}
-                          >
-                            <Icon aria-hidden="true" className="size-3.5" />
-                            {status}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Panel>
-
-      {/* Absence & Cut Monitor */}
-      <Panel title="Subject Absence & Cut Counter">
+      {entries.length === 0 ? (
+        <EmptyState
+          icon={<ClipboardCheck aria-hidden="true" className="size-6" />}
+          title="No subjects yet"
+          description="Add your classes first, then check in from the Today tab."
+          action={
+            <button type="button" className="primary-button" onClick={onAddClass}>
+              Add a class
+            </button>
+          }
+        />
+      ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          {statsByEntry.map((stat) => (
-            <div
-              key={stat.entry.id}
-              className={`rounded-xl border p-3.5 shadow-sm ${
-                stat.isExceeded
-                  ? "border-rose-500/60 bg-rose-50/25 dark:bg-rose-950/20"
-                  : stat.isCritical
-                    ? "border-amber-500/60 bg-amber-50/25 dark:bg-amber-950/20"
-                    : "border-border bg-surface"
-              }`}
-            >
-              <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between">
-                <div className="min-w-0 max-w-full">
-                  <h4 className="break-words text-sm font-semibold leading-snug text-foreground sm:text-base">
-                    {stat.entry.title}
-                  </h4>
-                  <p className="text-xs text-muted">
-                    {[stat.entry.code, stat.entry.room].filter(Boolean).join(" • ") || stat.entry.type}
-                  </p>
-                </div>
-                {stat.isExceeded ? (
-                  <span className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-md bg-rose-500/20 px-2 py-0.5 text-xs font-bold text-rose-700 dark:text-rose-300">
-                    <ShieldAlert aria-hidden="true" className="size-3.5" />
-                    Cuts Exceeded
-                  </span>
-                ) : stat.isCritical ? (
-                  <span className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-md bg-amber-500/20 px-2 py-0.5 text-xs font-bold text-amber-700 dark:text-amber-300">
-                    <AlertTriangle aria-hidden="true" className="size-3.5" />
-                    {stat.cutsRemaining} Cut Left
-                  </span>
-                ) : (
-                  <span className="max-w-full shrink-0 rounded-md bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
-                    {stat.cutsRemaining} Cuts Left
-                  </span>
-                )}
-              </div>
-
-              {/* Progress bar */}
-              <div className="mt-3">
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted">
-                  <span>Absences: {stat.cutsUsed} / {stat.maxCuts}</span>
-                  <span>{stat.rate}% Attended</span>
-                </div>
-                <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-surface-2 border border-border/50">
-                  <div
-                    className={`h-full transition-all duration-300 ${
-                      stat.isExceeded
-                        ? "bg-rose-500"
-                        : stat.isCritical
-                          ? "bg-amber-500"
-                          : "bg-emerald-500"
-                    }`}
-                    style={{
-                      width: `${Math.min(100, Math.max(8, (stat.cutsUsed / stat.maxCuts) * 100))}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Attendance breakdown pills */}
-              <div className="mt-2.5 flex flex-wrap gap-1.5 text-[11px] text-muted">
-                <span className="rounded px-1.5 py-0.5 bg-surface-2">
-                  Present: {stat.presents}
-                </span>
-                <span className="rounded px-1.5 py-0.5 bg-surface-2">
-                  Late: {stat.lates}
-                </span>
-                <span className="rounded px-1.5 py-0.5 bg-surface-2">
-                  Absent: {stat.absences}
-                </span>
-                {stat.excused > 0 ? (
-                  <span className="rounded px-1.5 py-0.5 bg-surface-2">
-                    Excused: {stat.excused}
-                  </span>
-                ) : null}
-              </div>
-            </div>
+          {sorted.map((stat) => (
+            <SubjectAttendanceCard key={stat.entry.id} stat={stat} />
           ))}
         </div>
-      </Panel>
+      )}
+
+      {records.length > 0 ? (
+        <button
+          type="button"
+          className="secondary-button justify-self-start text-danger hover:!border-danger/50"
+          onClick={onClearAttendance}
+        >
+          <RotateCcw aria-hidden="true" className="size-4" />
+          Reset attendance history
+        </button>
+      ) : null}
     </div>
+  );
+}
+
+function SubjectAttendanceCard({ stat }: { stat: AttendanceStat }) {
+  const accent = getEntryAccentColor(stat.entry);
+  const barColor = stat.isExceeded ? "bg-rose-500" : stat.isCritical ? "bg-amber-500" : "bg-emerald-500";
+
+  return (
+    <article
+      className={`neo-card p-4 ${
+        stat.isExceeded
+          ? "!border-rose-400/70 dark:!border-rose-500/50"
+          : stat.isCritical
+            ? "!border-amber-400/70 dark:!border-amber-500/50"
+            : ""
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span className="mt-1.5 size-2.5 shrink-0 rounded-full" style={{ backgroundColor: accent }} />
+          <div className="min-w-0">
+            <h3 className="break-words text-base font-semibold leading-snug text-foreground">
+              {stat.entry.title}
+            </h3>
+            <p className="text-xs text-muted">
+              {[stat.entry.code, stat.entry.room].filter(Boolean).join(" · ") || stat.entry.type}
+            </p>
+          </div>
+        </div>
+        {stat.isExceeded ? (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-rose-500/15 px-2.5 py-1 text-xs font-bold text-rose-700 dark:text-rose-300">
+            <ShieldAlert aria-hidden="true" className="size-3.5" />
+            Limit reached
+          </span>
+        ) : stat.isCritical ? (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-700 dark:text-amber-300">
+            <AlertTriangle aria-hidden="true" className="size-3.5" />
+            {stat.cutsRemaining} left
+          </span>
+        ) : (
+          <span className="shrink-0 rounded-full bg-emerald-500/12 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+            {stat.cutsRemaining} left
+          </span>
+        )}
+      </div>
+
+      <div className="mt-4">
+        <div className="flex items-baseline justify-between text-sm">
+          <span className="font-semibold text-foreground">
+            {stat.cutsUsed} <span className="font-normal text-muted">of {stat.maxCuts} absences used</span>
+          </span>
+          <span className="text-xs font-semibold text-muted">{stat.rate}% attended</span>
+        </div>
+        <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-surface-2">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+            style={{ width: `${Math.min(100, (stat.cutsUsed / stat.maxCuts) * 100)}%` }}
+          />
+        </div>
+      </div>
+
+      <dl className="mt-3 grid grid-cols-4 gap-1.5 text-center">
+        {(
+          [
+            ["Present", stat.presents],
+            ["Late", stat.lates],
+            ["Absent", stat.absences],
+            ["Excused", stat.excused],
+          ] as const
+        ).map(([label, value]) => (
+          <div key={label} className="rounded-lg bg-surface-2 py-1.5">
+            <dt className="text-[11px] text-muted">{label}</dt>
+            <dd className="text-sm font-bold tabular-nums text-foreground">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </article>
   );
 }

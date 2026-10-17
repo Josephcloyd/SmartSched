@@ -95,7 +95,8 @@ export type SchoolPaletteId = (typeof schoolPaletteIds)[number];
 export type WallpaperSizeGroup = (typeof wallpaperSizePresets)[number]["group"];
 export type WallpaperSizeId = (typeof wallpaperSizePresets)[number]["id"];
 export type AttendanceStatus = (typeof attendanceStatuses)[number];
-export type ScheduleViewMode = "day" | "grid";
+export type ScheduleViewMode = "day" | "week" | "grid";
+export type AppTab = "today" | "schedule" | "attendance" | "more";
 
 export type ScheduleEntry = {
   id: string;

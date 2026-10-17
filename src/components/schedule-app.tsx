@@ -2,32 +2,22 @@
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle,
-  Bell,
-  CalendarClock,
+  CalendarCheck2,
   CalendarDays,
-  Camera,
-  FileDown,
-  ImageDown,
-  LayoutGrid,
-  List,
-  MapPin,
+  ClipboardCheck,
+  Ellipsis,
   MoonStar,
   Plus,
-  Save,
-  Share2,
   Sun,
-  Trash2,
-  Upload,
-  X,
+  type LucideIcon,
 } from "lucide-react";
 import {
   days,
   scheduleTypes,
   wallpaperSizePresets,
+  type AppTab,
   type AttendanceRecord,
   type AttendanceStatus,
-  type CustomBreak,
   type DayName,
   type HolidayCalendar,
   type ScheduleEntry,
@@ -48,12 +38,10 @@ import {
 } from "@/lib/holidays";
 import {
   dayNameForDate,
-  entriesForDay,
   formatTime,
   hasTimeConflict,
   nextDateForDay,
   sortEntries,
-  timeToMinutes,
   uid,
 } from "@/lib/utils";
 import {
@@ -62,24 +50,20 @@ import {
 import {
   drawWallpaper,
   formatWallpaperSize,
-  getWallpaperDays,
   typeStyle,
 } from "@/lib/wallpaper-renderer";
 import {
-  Field,
-  Metric,
-  Panel,
-  TextInput,
-  ToggleControl,
-} from "@/components/ui/form-controls";
-import {
   PhonePreviewDialog,
-  SchoolPalettePicker,
   type SelectedWallpaperSize,
 } from "@/components/wallpaper/wallpaper-modal";
-import { ScheduleRow } from "@/components/schedule/schedule-row";
-import { TimetableGrid } from "@/components/schedule/timetable-grid";
-import { AttendanceTracker } from "@/components/attendance/attendance-tracker";
+import { EntryFormSheet, type EntryFormValues } from "@/components/schedule/entry-form-sheet";
+import { ScheduleView } from "@/components/schedule/schedule-view";
+import {
+  AttendanceOverview,
+  computeAttendanceStats,
+} from "@/components/attendance/attendance-tracker";
+import { TodayView } from "@/components/today/today-view";
+import { MoreView } from "@/components/more/more-view";
 import { FeedbackWidget } from "@/components/feedback-widget";
 
 const storageKey = "smartsched.local.schedule.v1";
@@ -104,7 +88,7 @@ const defaultSettings: ScheduleSettings = {
   wallpaperClockSafetyZone: true,
 };
 
-const blankEntry: Omit<ScheduleEntry, "id"> = {
+const blankEntry: EntryFormValues = {
   title: "",
   code: "",
   room: "",
@@ -117,20 +101,23 @@ const blankEntry: Omit<ScheduleEntry, "id"> = {
   maxAbsences: 3,
 };
 
-const accentPresets = [
-  "#256f53",
-  "#165c8d",
-  "#7b1113",
-  "#9d2235",
-  "#00703c",
-  "#003a70",
-  "#7a1731",
-  "#b55d2c",
-  "#b42318",
-  "#4f46e5",
-  "#0284c7",
-  "#d97706",
+const tabs: { id: AppTab; label: string; icon: LucideIcon }[] = [
+  { id: "today", label: "Today", icon: CalendarCheck2 },
+  { id: "schedule", label: "Schedule", icon: CalendarDays },
+  { id: "attendance", label: "Attendance", icon: ClipboardCheck },
+  { id: "more", label: "More", icon: Ellipsis },
 ];
+
+type Toast = {
+  id: number;
+  text: string;
+  action?: { label: string; onClick: () => void };
+};
+
+type FormState = {
+  initial: EntryFormValues;
+  editingId: string | null;
+};
 
 type StoredSchedule = {
   settings: ScheduleSettings;
@@ -258,32 +245,26 @@ export function ScheduleApp() {
   const [settings, setSettings] = useState<ScheduleSettings>(defaultSettings);
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [tab, setTab] = useState<AppTab>("today");
   const [viewMode, setViewMode] = useState<ScheduleViewMode>("day");
   const [holidayCalendar, setHolidayCalendar] = useState<HolidayCalendar>(defaultHolidayCalendar);
   const [holidayLoading, setHolidayLoading] = useState(false);
   const [selectedDay, setSelectedDay] = useState<DayName>("Monday");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<Omit<ScheduleEntry, "id">>(blankEntry);
-  const [message, setMessage] = useState("");
+  const [formState, setFormState] = useState<FormState | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
   const [notificationState, setNotificationState] =
     useState<NotificationPermission | "unsupported">("unsupported");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [storageReady, setStorageReady] = useState(false);
+  const [now, setNow] = useState<Date | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [customBreakName, setCustomBreakName] = useState("");
-  const [customBreakStart, setCustomBreakStart] = useState("");
-  const [customBreakEnd, setCustomBreakEnd] = useState("");
-  const [showAddBreak, setShowAddBreak] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [canShare, setCanShare] = useState(false);
   const [detectedDeviceSize, setDetectedDeviceSize] = useState({
     width: 1080,
     height: 1920,
   });
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const addItemPanelRef = useRef<HTMLElement>(null);
-  const titleInputRef = useRef<HTMLInputElement>(null);
-  const startInputRef = useRef<HTMLInputElement>(null);
   const holidayRefreshAttemptedRef = useRef(false);
 
   // Initialize from localStorage
@@ -319,6 +300,9 @@ export function ScheduleApp() {
         setTheme("dark");
       }
 
+      const current = new Date();
+      setNow(current);
+      setSelectedDay(dayNameForDate(current));
       setNotificationState(getNotificationPermission());
       setDetectedDeviceSize(detectDeviceWallpaperSize());
       setCanShare(typeof navigator !== "undefined" && typeof navigator.share === "function");
@@ -326,6 +310,12 @@ export function ScheduleApp() {
     }, 0);
 
     return () => window.clearTimeout(timer);
+  }, []);
+
+  // Keep "now" fresh so the Today view's countdowns stay accurate.
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30000);
+    return () => window.clearInterval(timer);
   }, []);
 
   // Update detected device size on resize
@@ -361,6 +351,10 @@ export function ScheduleApp() {
     if (!storageReady) return;
     document.documentElement.classList.toggle("dark", theme === "dark");
     document.documentElement.style.colorScheme = theme;
+    // Match the mobile browser / installed-app status bar to the page background.
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", theme === "dark" ? "#0c1210" : "#f3f5f7");
     window.localStorage.setItem(themeKey, theme);
   }, [theme, storageReady]);
 
@@ -399,157 +393,105 @@ export function ScheduleApp() {
       .catch(() => undefined);
   }, [holidayCalendar, storageReady]);
 
+  // Auto-dismiss toasts
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), toast.action ? 6000 : 3500);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
   const sortedEntries = useMemo(() => sortEntries(entries), [entries]);
-  const selectedEntries = useMemo(
-    () => entriesForDay(entries, selectedDay),
-    [entries, selectedDay],
-  );
   const selectedWallpaperSize = useMemo(
     () => getWallpaperSizePreset(settings, detectedDeviceSize),
     [detectedDeviceSize, settings],
-  );
-  const visibleOverviewDays = useMemo(
-    () => getWallpaperDays(entries, settings),
-    [entries, settings],
-  );
-  const holidayToday = useMemo(
-    () => holidayForDate(holidayCalendar, new Date()),
-    [holidayCalendar],
   );
   const nextHolidays = useMemo(
     () => upcomingHolidays(holidayCalendar),
     [holidayCalendar],
   );
-
-  const candidate = useMemo<ScheduleEntry>(
-    () => ({ id: editingId ?? "new", ...form }),
-    [editingId, form],
+  const attendanceRisk = useMemo(
+    () =>
+      computeAttendanceStats(entries, attendanceRecords).filter(
+        (stat) => stat.isCritical || stat.isExceeded,
+      ).length,
+    [entries, attendanceRecords],
   );
-  const conflict = hasTimeConflict(candidate, entries);
+
+  const todayName = now ? dayNameForDate(now) : "Monday";
+  const todayDateKey = now ? formatLocalDateKey(now) : "";
+  const nowMinutes = now ? now.getHours() * 60 + now.getMinutes() : undefined;
+  const holidayToday = useMemo(
+    () => (now ? holidayForDate(holidayCalendar, now) : undefined),
+    [holidayCalendar, now],
+  );
   const schoolPalette = getSchoolPalette(settings.schoolPaletteId);
-  const todayName = useMemo(() => dayNameForDate(new Date()), []);
-  const todayDateKey = useMemo(() => formatLocalDateKey(new Date()), []);
 
-  const brandStyle = {
-    "--primary": schoolPalette.uiPrimary,
-    "--primary-strong": schoolPalette.uiPrimaryStrong,
-    "--accent": schoolPalette.uiAccent,
-  } as React.CSSProperties;
+  // Set brand colors on <html>: --primary is derived there (lightened in dark mode),
+  // so overriding --brand on a child element would not reach it.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--brand", schoolPalette.uiPrimary);
+    root.style.setProperty("--brand-strong", schoolPalette.uiPrimaryStrong);
+    root.style.setProperty("--accent", schoolPalette.uiAccent);
+  }, [schoolPalette.uiPrimary, schoolPalette.uiPrimaryStrong, schoolPalette.uiAccent]);
 
-  function goToAddItem(field?: "title" | "start") {
-    addItemPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  function setMessage(text: string, action?: Toast["action"]) {
+    setToast({ id: Date.now(), text, action });
+  }
+
+  function goToTab(next: AppTab, anchor?: string) {
+    setTab(next);
     window.setTimeout(() => {
-      if (field === "title") {
-        titleInputRef.current?.focus();
-      } else if (field === "start") {
-        startInputRef.current?.focus();
+      if (anchor) {
+        document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else {
+        window.scrollTo({ top: 0, behavior: "smooth" });
       }
-    }, 260);
+    }, 60);
   }
 
-  function updateForm<K extends keyof Omit<ScheduleEntry, "id">>(
-    key: K,
-    value: Omit<ScheduleEntry, "id">[K],
-  ) {
-    setForm((current) => ({ ...current, [key]: value }));
-  }
-
-  function updateFormType(type: ScheduleType) {
-    setForm((current) => ({
-      ...current,
-      type,
-      accentColor:
-        current.accentColor === typeStyle[current.type]
-          ? typeStyle[type]
-          : current.accentColor,
-    }));
-  }
-
-  function resetForm(day: DayName = selectedDay) {
-    setEditingId(null);
-    setForm({ ...blankEntry, days: [day] });
-  }
-
-  function toggleFormDay(day: DayName) {
-    setForm((current) => {
-      const exists = current.days.includes(day);
-      const nextDays = exists
-        ? current.days.filter((item) => item !== day)
-        : [...current.days, day];
-      return {
-        ...current,
-        days: nextDays.length > 0 ? nextDays : [day],
-      };
+  function openAddForm(day?: DayName) {
+    setFormState({
+      initial: { ...blankEntry, days: [day ?? (tab === "schedule" ? selectedDay : todayName)] },
+      editingId: null,
     });
   }
 
-  // Quick Day Presets (Phase 3)
-  function applyDayPreset(preset: "MWF" | "TTH" | "Weekdays" | "All") {
-    if (preset === "MWF") {
-      setForm((c) => ({ ...c, days: ["Monday", "Wednesday", "Friday"] }));
-    } else if (preset === "TTH") {
-      setForm((c) => ({ ...c, days: ["Tuesday", "Thursday"] }));
-    } else if (preset === "Weekdays") {
-      setForm((c) => ({
-        ...c,
-        days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-      }));
-    } else if (preset === "All") {
-      setForm((c) => ({ ...c, days: [...days] }));
-    }
+  function openEditForm(entry: ScheduleEntry) {
+    const { id, ...rest } = entry;
+    setFormState({ initial: rest, editingId: id });
   }
 
-  function saveEntry() {
-    if (!form.title.trim()) {
-      setMessage("Enter a subject or activity title before saving.");
-      goToAddItem("title");
-      return;
-    }
-
-    if (timeToMinutes(form.start) >= timeToMinutes(form.end)) {
-      setMessage("Start time must be earlier than end time.");
-      goToAddItem("start");
-      return;
-    }
-
-    if (form.days.length === 0) {
-      setMessage("Select at least one day.");
-      return;
-    }
-
+  function saveEntry(values: EntryFormValues) {
+    const editingId = formState?.editingId ?? null;
     const saved: ScheduleEntry = {
       id: editingId ?? uid(),
-      ...form,
-      title: form.title.trim(),
-      code: form.code.trim(),
-      room: form.room.trim(),
-      maxAbsences: Math.max(1, form.maxAbsences || 3),
+      ...values,
+      title: values.title.trim(),
+      code: values.code.trim(),
+      room: values.room.trim(),
+      maxAbsences: Math.max(1, values.maxAbsences || 3),
     };
+    const conflict = hasTimeConflict(saved, entries);
 
     setEntries((current) =>
       editingId
         ? current.map((entry) => (entry.id === editingId ? saved : entry))
         : [...current, saved],
     );
-    setSelectedDay(saved.days[0] ?? selectedDay);
-    resetForm(saved.days[0] ?? selectedDay);
+    if (!saved.days.includes(selectedDay)) {
+      setSelectedDay(saved.days[0] ?? selectedDay);
+    }
+    setFormState(null);
     setMessage(
       conflict
-        ? "Saved with a time conflict warning."
-        : "Schedule saved on the selected days.",
+        ? `Saved ${saved.title}, but it overlaps another class.`
+        : editingId
+          ? `Saved changes to ${saved.title}.`
+          : `Added ${saved.title}.`,
     );
   }
 
-  function editEntry(entry: ScheduleEntry) {
-    const { id, ...rest } = entry;
-    setEditingId(id);
-    setForm(rest);
-    setSelectedDay(entry.days[0] ?? selectedDay);
-    setMessage("");
-    goToAddItem("title");
-  }
-
-  // Duplicate / Clone Class (Phase 3)
   function duplicateEntry(entry: ScheduleEntry) {
     const clone: ScheduleEntry = {
       ...entry,
@@ -557,27 +499,34 @@ export function ScheduleApp() {
       title: `${entry.title} (Copy)`,
     };
     setEntries((current) => [...current, clone]);
-    setMessage(`Duplicated ${entry.title}.`);
+    setMessage(`Duplicated ${entry.title}. Tap the copy to change its time.`);
   }
 
-  function deleteEntry(id: string) {
-    setEntries((current) => current.filter((entry) => entry.id !== id));
-    if (editingId === id) {
-      resetForm();
+  function deleteEntry(entry: ScheduleEntry) {
+    setEntries((current) => current.filter((item) => item.id !== entry.id));
+    if (formState?.editingId === entry.id) {
+      setFormState(null);
     }
-    setMessage("Schedule item removed.");
+    setMessage(`Deleted ${entry.title}.`, {
+      label: "Undo",
+      onClick: () => {
+        setEntries((current) =>
+          current.some((item) => item.id === entry.id) ? current : [...current, entry],
+        );
+        setToast(null);
+      },
+    });
   }
 
   function clearAllEntries() {
     if (entries.length === 0) return;
-    if (window.confirm("Are you sure you want to clear all schedule items?")) {
+    if (window.confirm("Delete all your classes? This can't be undone unless you have a backup.")) {
       setEntries([]);
-      resetForm();
-      setMessage("All schedule items cleared.");
+      setFormState(null);
+      setMessage("All classes deleted.");
     }
   }
 
-  // Attendance Handlers (Phase 5)
   function handleRecordAttendance(entryId: string, status: AttendanceStatus) {
     setAttendanceRecords((current) => {
       const existingIdx = current.findIndex(
@@ -598,13 +547,14 @@ export function ScheduleApp() {
         },
       ];
     });
-    setMessage(`Recorded "${status}" for today's class.`);
+    const title = entries.find((entry) => entry.id === entryId)?.title ?? "this class";
+    setMessage(`Marked ${status.toLowerCase()} for ${title}.`);
   }
 
   function handleClearAttendance() {
-    if (window.confirm("Are you sure you want to reset all attendance logs?")) {
+    if (window.confirm("Reset all attendance history? This can't be undone.")) {
       setAttendanceRecords([]);
-      setMessage("Attendance logs reset.");
+      setMessage("Attendance history reset.");
     }
   }
 
@@ -627,20 +577,19 @@ export function ScheduleApp() {
         customBreaks: holidayCalendar.customBreaks || [],
       });
       setMessage(
-        `${holidays.length} public holidays recorded for ${location.countryName}.`,
+        `${holidays.length} public holidays loaded for ${location.countryName}.`,
       );
     } catch (error) {
       const detail =
         typeof error === "object" && error && "message" in error
           ? String((error as { message: unknown }).message)
-          : "Allow location access or select your country manually below.";
-      setMessage(`Holiday detection not completed. ${detail}`);
+          : "Allow location access or choose your country instead.";
+      setMessage(`Couldn't detect your location. ${detail}`);
     } finally {
       setHolidayLoading(false);
     }
   }
 
-  // Manual Country Selection (Phase 7)
   async function handleSelectCountry(countryCode: string) {
     if (!countryCode) return;
     const found = popularCountries.find((c) => c.code === countryCode);
@@ -662,48 +611,16 @@ export function ScheduleApp() {
       }));
       setMessage(`Loaded ${holidays.length} public holidays for ${found.name}.`);
     } catch {
-      setMessage(`Could not load holidays for ${found.name}. Please check internet connection.`);
+      setMessage(`Couldn't load holidays for ${found.name}. Check your internet connection.`);
     } finally {
       setHolidayLoading(false);
     }
   }
 
-  // Custom School Breaks (Phase 7)
-  function handleAddCustomBreak(e: React.FormEvent) {
-    e.preventDefault();
-    if (!customBreakName.trim() || !customBreakStart || !customBreakEnd) {
-      setMessage("Please fill in break name, start date, and end date.");
-      return;
-    }
-    const newBreak: CustomBreak = {
-      id: uid(),
-      name: customBreakName.trim(),
-      startDate: customBreakStart,
-      endDate: customBreakEnd,
-    };
-    setHolidayCalendar((current) => ({
-      ...current,
-      customBreaks: [...(current.customBreaks || []), newBreak],
-    }));
-    setCustomBreakName("");
-    setCustomBreakStart("");
-    setCustomBreakEnd("");
-    setShowAddBreak(false);
-    setMessage(`Added school break: "${newBreak.name}". Alarms are paused during this period.`);
-  }
-
-  function handleRemoveCustomBreak(id: string) {
-    setHolidayCalendar((current) => ({
-      ...current,
-      customBreaks: (current.customBreaks || []).filter((b) => b.id !== id),
-    }));
-    setMessage("Removed school break.");
-  }
-
   async function enableNotifications() {
     if (!("Notification" in window)) {
       setNotificationState("unsupported");
-      setMessage("This browser does not support local notifications.");
+      setMessage("This browser doesn't support notifications.");
       return;
     }
 
@@ -711,8 +628,8 @@ export function ScheduleApp() {
     setNotificationState(permission);
     setMessage(
       permission === "granted"
-        ? "Local reminders are on while SmartSched is open or installed."
-        : "Notifications were not enabled.",
+        ? "Reminders are on while SmartSched is open or installed."
+        : "Notifications weren't turned on.",
     );
   }
 
@@ -726,6 +643,7 @@ export function ScheduleApp() {
       ),
       "application/json",
     );
+    setMessage("Backup saved to your downloads.");
   }
 
   function importBackup(event: ChangeEvent<HTMLInputElement>) {
@@ -745,9 +663,9 @@ export function ScheduleApp() {
         if (Array.isArray(parsed.attendanceRecords)) {
           setAttendanceRecords(parsed.attendanceRecords);
         }
-        setMessage("Backup imported and saved on this device.");
+        setMessage("Backup restored on this device.");
       } catch {
-        setMessage("That backup file is not valid SmartSched data.");
+        setMessage("That file isn't a valid SmartSched backup.");
       } finally {
         event.target.value = "";
       }
@@ -761,8 +679,8 @@ export function ScheduleApp() {
     setMessage(
       holidayCalendar.enabled &&
         (holidayCalendar.holidays.length > 0 || (holidayCalendar.customBreaks?.length ?? 0) > 0)
-        ? "Calendar downloaded. Recorded holidays and breaks are excluded from alarms."
-        : "Calendar file downloaded. Open it on your phone to add alarms.",
+        ? "Calendar downloaded. Holidays and breaks are skipped."
+        : "Calendar downloaded. Open it on your phone to add the alarms.",
     );
   }
 
@@ -791,12 +709,9 @@ export function ScheduleApp() {
       `smartsched-wallpaper-${selectedWallpaperSize.id}-${selectedWallpaperSize.width}x${selectedWallpaperSize.height}-${layoutSlug}.${extension}`,
       blob,
     );
-    setMessage(
-      `${selectedWallpaperSize.label} ${format} wallpaper (${sizeLabel}) downloaded.`,
-    );
+    setMessage(`Wallpaper downloaded (${sizeLabel} ${format}).`);
   }
 
-  // Web Share API support (Phase 6)
   async function shareWallpaper() {
     if (typeof navigator === "undefined" || !navigator.share) {
       await downloadWallpaper();
@@ -824,752 +739,243 @@ export function ScheduleApp() {
         title: settings.wallpaperTitle || "SmartSched Wallpaper",
         files: [file],
       });
-      setMessage("Wallpaper shared successfully.");
+      setMessage("Wallpaper shared.");
     } catch {
-      // User canceled share dialog or browser lacks file share support; fallback
+      // User canceled share dialog or browser lacks file share support
     }
   }
 
+  const showFab = (tab === "today" || tab === "schedule") && entries.length > 0;
+  const hasAttendanceRisk = attendanceRisk > 0;
+
   return (
-    <main
-      className="min-h-screen w-full max-w-full overflow-x-hidden bg-background pb-28 text-foreground transition-colors duration-200"
-      style={brandStyle}
-    >
-      {/* Top Header */}
-      <section className="border-b border-border/80 bg-gradient-to-br from-surface via-surface to-surface-2/80">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-3.5 py-6 sm:px-5 sm:py-8 lg:flex-row lg:items-end lg:justify-between lg:px-8">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-sm font-semibold uppercase tracking-[0.18em] text-primary">
-              <span className="h-2 w-2 rounded-full bg-primary" />
-              SmartSched Local
-            </div>
-            <h1 className="mt-4 text-2xl font-semibold text-foreground sm:text-3xl lg:text-4xl">
-              Schedule, Attendance & Wallpaper Planner
-            </h1>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-muted">
-              Local-first student scheduler with Philippine school palettes, daily attendance check-in, absence warnings, phone wallpaper exports, and calendar alarms.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-1.5 sm:gap-2">
-            <button
-              type="button"
-              className="tool-button"
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            >
-              {theme === "dark" ? (
-                <Sun aria-hidden="true" className="size-4" />
-              ) : (
-                <MoonStar aria-hidden="true" className="size-4" />
-              )}
-              {theme === "dark" ? "Light" : "Dark"}
-            </button>
-            <button
-              type="button"
-              className="tool-button"
-              onClick={() => downloadWallpaper()}
-            >
-              <ImageDown aria-hidden="true" className="size-4" />
-              Wallpaper
-            </button>
-            <button
-              type="button"
-              className="tool-button"
-              onClick={() => setPreviewOpen(true)}
-            >
-              <Camera aria-hidden="true" className="size-4" />
-              Preview
-            </button>
-            {canShare ? (
-              <button
-                type="button"
-                className="tool-button"
-                onClick={shareWallpaper}
-                title="Share wallpaper to lock screen or gallery"
-              >
-                <Share2 aria-hidden="true" className="size-4" />
-                Share
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="tool-button"
-              onClick={exportCalendar}
-            >
-              <CalendarClock aria-hidden="true" className="size-4" />
-              Alarms
-            </button>
-            <button
-              type="button"
-              className="tool-button"
-              onClick={enableNotifications}
-            >
-              <Bell aria-hidden="true" className="size-4" />
-              Notify
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Quick Action Cards */}
-      <section className="mx-auto w-full min-w-0 max-w-7xl px-3.5 py-4 sm:px-5 sm:py-6 lg:px-8">
-        <div className="grid gap-3 sm:grid-cols-3">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-background text-foreground">
+      {/* App bar */}
+      <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 pt-[env(safe-area-inset-top)] backdrop-blur-lg">
+        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 md:h-16">
           <button
             type="button"
-            className="neo-card p-4 text-left transition hover:-translate-y-0.5 sm:p-5"
-            onClick={() => goToAddItem("title")}
+            className="flex min-w-0 items-center gap-2.5 text-left"
+            onClick={() => goToTab("today")}
           >
-            <p className="text-sm font-semibold text-foreground">1. Add your classes</p>
-            <p className="mt-1.5 text-xs leading-5 text-muted sm:text-sm sm:leading-6">
-              Use MWF/TTH presets and set maximum allowed cuts per subject.
-            </p>
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary-fill text-white shadow-[var(--shadow-sm)]">
+              <CalendarDays aria-hidden="true" className="size-5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-base font-bold leading-tight text-foreground">SmartSched</span>
+              <span className="block truncate text-xs text-muted">{schoolPalette.name}</span>
+            </span>
           </button>
-          <button
-            type="button"
-            className="neo-card p-4 text-left transition hover:-translate-y-0.5 sm:p-5"
-            onClick={() => setPreviewOpen(true)}
-          >
-            <p className="text-sm font-semibold text-foreground">2. Download wallpaper</p>
-            <p className="mt-1.5 text-xs leading-5 text-muted sm:text-sm sm:leading-6">
-              Pick your school palette, customize clock safe margin, and export HD wallpaper.
-            </p>
-          </button>
-          <button
-            type="button"
-            className="neo-card p-4 text-left transition hover:-translate-y-0.5 sm:p-5"
-            onClick={exportCalendar}
-          >
-            <p className="text-sm font-semibold text-foreground">3. Import alarms</p>
-            <p className="mt-1.5 text-xs leading-5 text-muted sm:text-sm sm:leading-6">
-              Download the `.ics` file with automatic public holiday & break exclusions.
-            </p>
-          </button>
-        </div>
-      </section>
 
-      {/* Main Grid Body */}
-      <section className="mx-auto grid w-full min-w-0 max-w-7xl gap-4 px-3.5 py-4 sm:gap-5 sm:px-5 sm:py-6 lg:grid-cols-[390px_minmax(0,1fr)] lg:px-8">
-        {/* Left Column: Form & Settings */}
-        <div className="order-2 w-full min-w-0 space-y-4 sm:space-y-5 lg:order-1">
-          {/* Schedule & School Palette Panel */}
-          <Panel title="Schedule & Palette">
-            <div className="grid gap-3">
-              <TextInput
-                label="Wallpaper title"
-                value={settings.wallpaperTitle}
-                onChange={(value) =>
-                  setSettings((current) => ({ ...current, wallpaperTitle: value }))
-                }
-              />
-              <SchoolPalettePicker
-                selectedId={settings.schoolPaletteId}
-                onChange={(palette) =>
-                  setSettings((current) => ({
-                    ...current,
-                    schoolPaletteId: palette.id,
-                    wallpaperStyle: "School Palette",
-                  }))
-                }
-              />
+          <nav className="hidden items-center gap-1 rounded-2xl border border-border bg-surface p-1 md:flex" aria-label="Main">
+            {tabs.map(({ id, label, icon: Icon }) => (
               <button
-                className="secondary-button"
+                key={id}
                 type="button"
-                onClick={() => setPreviewOpen(true)}
+                aria-current={tab === id ? "page" : undefined}
+                onClick={() => goToTab(id)}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                  tab === id
+                    ? "bg-primary-fill text-white shadow-[var(--shadow-sm)]"
+                    : "text-muted hover:bg-surface-2 hover:text-foreground"
+                }`}
               >
-                <Camera aria-hidden="true" className="size-4" />
-                Customize wallpaper
-              </button>
-            </div>
-          </Panel>
-
-          {/* Add / Edit Item Form */}
-          <Panel
-            title={editingId ? "Edit Class / Activity" : "Add Class / Activity"}
-            sectionRef={addItemPanelRef}
-          >
-            <div className="grid gap-3">
-              <TextInput
-                label="Subject or activity"
-                value={form.title}
-                onChange={(value) => updateForm("title", value)}
-                placeholder="e.g. Data Structures"
-                inputRef={titleInputRef}
-                required
-              />
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <TextInput
-                  label="Code"
-                  value={form.code}
-                  onChange={(value) => updateForm("code", value)}
-                  placeholder="e.g. CS 201"
-                />
-                <Field label="Type">
-                  <select
-                    className="field"
-                    value={form.type}
-                    onChange={(event) =>
-                      updateFormType(event.target.value as ScheduleType)
-                    }
-                  >
-                    {scheduleTypes.map((type) => (
-                      <option key={type}>{type}</option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-
-              {/* Day Selection with Quick Presets */}
-              <Field label="Days">
-                <div className="flex flex-wrap gap-1.5 pb-1 text-xs">
-                  <span className="self-center font-semibold text-muted">Presets:</span>
-                  <button
-                    type="button"
-                    className="rounded-md border border-border bg-surface-2 px-2 py-0.5 font-semibold text-foreground hover:border-primary"
-                    onClick={() => applyDayPreset("MWF")}
-                  >
-                    MWF
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-md border border-border bg-surface-2 px-2 py-0.5 font-semibold text-foreground hover:border-primary"
-                    onClick={() => applyDayPreset("TTH")}
-                  >
-                    TTH
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-md border border-border bg-surface-2 px-2 py-0.5 font-semibold text-foreground hover:border-primary"
-                    onClick={() => applyDayPreset("Weekdays")}
-                  >
-                    Mon–Fri
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-md border border-border bg-surface-2 px-2 py-0.5 font-semibold text-foreground hover:border-primary"
-                    onClick={() => applyDayPreset("All")}
-                  >
-                    All Days
-                  </button>
-                </div>
-
-                <div className="grid w-full grid-cols-7 gap-1 sm:gap-2">
-                  {days.map((day) => {
-                    const selected = form.days.includes(day);
-                    return (
-                      <button
-                        key={day}
-                        type="button"
-                        className={
-                          selected
-                            ? "flex min-h-9 items-center justify-center rounded-lg bg-primary px-0.5 py-1.5 text-xs font-semibold text-white shadow-sm sm:min-h-11 sm:rounded-xl sm:px-2 sm:text-sm"
-                            : "flex min-h-9 items-center justify-center rounded-lg border border-border bg-surface px-0.5 py-1.5 text-xs font-semibold text-muted hover:border-primary/50 sm:min-h-11 sm:rounded-xl sm:px-2 sm:text-sm"
-                        }
-                        aria-pressed={selected}
-                        onClick={() => toggleFormDay(day)}
-                      >
-                        {day.slice(0, 3)}
-                      </button>
-                    );
-                  })}
-                </div>
-              </Field>
-
-              {/* Time Pickers */}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <TextInput
-                  label="Start"
-                  type="time"
-                  value={form.start}
-                  onChange={(value) => updateForm("start", value)}
-                  inputRef={startInputRef}
-                  required
-                />
-                <TextInput
-                  label="End"
-                  type="time"
-                  value={form.end}
-                  onChange={(value) => updateForm("end", value)}
-                  required
-                />
-              </div>
-
-              {/* Room, Reminder & Max Cuts */}
-              <div className="grid gap-3 sm:grid-cols-3">
-                <TextInput
-                  label="Room"
-                  value={form.room}
-                  onChange={(value) => updateForm("room", value)}
-                  placeholder="Room 302"
-                />
-                <TextInput
-                  label="Alarm (mins)"
-                  type="number"
-                  value={String(form.reminderMinutes)}
-                  onChange={(value) =>
-                    updateForm("reminderMinutes", Math.max(0, Number(value)))
-                  }
-                />
-                <TextInput
-                  label="Max Cuts"
-                  type="number"
-                  placeholder="3"
-                  value={String(form.maxAbsences ?? 3)}
-                  onChange={(value) =>
-                    updateForm("maxAbsences", Math.max(1, Number(value) || 3))
-                  }
-                />
-              </div>
-
-              {/* Accent color picker */}
-              <Field label="Accent color">
-                <div className="flex items-center gap-3">
-                  <input
-                    aria-label="Subject accent color"
-                    className="h-11 w-14 rounded-xl border border-border bg-surface p-1"
-                    type="color"
-                    value={form.accentColor}
-                    onChange={(event) =>
-                      updateForm("accentColor", event.target.value)
-                    }
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    {accentPresets.map((color) => (
-                      <button
-                        key={color}
-                        type="button"
-                        aria-label={`Use accent ${color}`}
-                        className="size-8 rounded-full border border-white/70 shadow-sm"
-                        style={{
-                          backgroundColor: color,
-                          boxShadow:
-                            form.accentColor === color
-                              ? `0 0 0 3px ${color}55`
-                              : undefined,
-                        }}
-                        onClick={() => updateForm("accentColor", color)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </Field>
-
-              {conflict ? (
-                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
-                  <AlertTriangle aria-hidden="true" className="mr-1.5 inline size-4 text-amber-600 dark:text-amber-400" />
-                  Time conflict detected on selected day(s). Both items will still be saved and exported.
-                </p>
-              ) : null}
-
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <button className="primary-button" onClick={saveEntry}>
-                  <Save aria-hidden="true" className="size-4" />
-                  {editingId ? "Update" : "Save"}
-                </button>
-                <button className="secondary-button" onClick={() => resetForm()}>
-                  <Plus aria-hidden="true" className="size-4" />
-                  New
-                </button>
-              </div>
-            </div>
-          </Panel>
-
-          {/* Holiday & Break Protection */}
-          <Panel title="Holidays & School Breaks">
-            <div className="grid gap-3">
-              <div className="neo-inset p-4">
-                <div className="flex items-start gap-3">
-                  <span className="rounded-xl bg-primary/12 p-2 text-primary">
-                    <MapPin aria-hidden="true" className="size-5" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-foreground">
-                      {holidayCalendar.countryName || "Location / country not selected"}
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-muted">
-                      {holidayCalendar.countryCode
-                        ? `${holidayCalendar.holidays.length} public holidays recorded`
-                        : "Select country or detect location to pause alarms on holidays."}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Country dropdown selector (Phase 7) */}
-              <Field label="Select country manually (No GPS required)">
-                <select
-                  className="field"
-                  value={holidayCalendar.countryCode}
-                  onChange={(e) => handleSelectCountry(e.target.value)}
-                  disabled={holidayLoading}
-                >
-                  <option value="">-- Choose Country --</option>
-                  {popularCountries.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.name} ({c.code})
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={holidayLoading}
-                onClick={detectAndRecordHolidays}
-              >
-                <MapPin aria-hidden="true" className="size-4" />
-                {holidayLoading ? "Detecting location..." : "Auto-detect location"}
-              </button>
-
-              <ToggleControl
-                label="Pause reminders on holidays & breaks"
-                checked={holidayCalendar.enabled}
-                onChange={(enabled) =>
-                  setHolidayCalendar((current) => ({ ...current, enabled }))
-                }
-              />
-
-              {/* Custom School Breaks Section (Phase 7) */}
-              <div className="border-t border-border/80 pt-3">
-                <div className="flex items-center justify-between pb-2">
-                  <p className="text-xs font-bold uppercase tracking-wider text-muted">
-                    Custom School Breaks
-                  </p>
-                  <button
-                    type="button"
-                    className="text-xs font-semibold text-primary hover:underline"
-                    onClick={() => setShowAddBreak(!showAddBreak)}
-                  >
-                    {showAddBreak ? "Cancel" : "+ Add break"}
-                  </button>
-                </div>
-
-                {showAddBreak ? (
-                  <form
-                    onSubmit={handleAddCustomBreak}
-                    className="grid gap-2 rounded-xl border border-border bg-surface-2 p-3 mb-2"
-                  >
-                    <input
-                      className="field text-xs py-1"
-                      placeholder="Break name (e.g. Sem Break, Intrams)"
-                      value={customBreakName}
-                      onChange={(e) => setCustomBreakName(e.target.value)}
-                      required
-                    />
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <span className="text-[11px] text-muted">Start</span>
-                        <input
-                          type="date"
-                          className="field text-xs py-1"
-                          value={customBreakStart}
-                          onChange={(e) => setCustomBreakStart(e.target.value)}
-                          required
-                        />
-                      </div>
-                      <div>
-                        <span className="text-[11px] text-muted">End</span>
-                        <input
-                          type="date"
-                          className="field text-xs py-1"
-                          value={customBreakEnd}
-                          onChange={(e) => setCustomBreakEnd(e.target.value)}
-                          required
-                        />
-                      </div>
-                    </div>
-                    <button type="submit" className="primary-button min-h-9 text-xs">
-                      Save Break
-                    </button>
-                  </form>
+                <Icon aria-hidden="true" className="size-4" />
+                {label}
+                {id === "attendance" && hasAttendanceRisk ? (
+                  <span className="size-2 rounded-full bg-danger" aria-label="Subjects at risk" />
                 ) : null}
-
-                {(holidayCalendar.customBreaks || []).length > 0 ? (
-                  <div className="grid gap-1.5">
-                    {holidayCalendar.customBreaks?.map((b) => (
-                      <div
-                        key={b.id}
-                        className="flex items-center justify-between rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs"
-                      >
-                        <div>
-                          <p className="font-semibold text-foreground">{b.name}</p>
-                          <p className="text-[11px] text-muted">
-                            {b.startDate} to {b.endDate}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          className="text-danger hover:opacity-80"
-                          onClick={() => handleRemoveCustomBreak(b.id)}
-                          aria-label={`Remove break ${b.name}`}
-                        >
-                          <X className="size-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
-              {nextHolidays.length > 0 ? (
-                <div className="grid gap-2 pt-2">
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">
-                    Upcoming holidays
-                  </p>
-                  {nextHolidays.map((holiday) => (
-                    <div
-                      key={`${holiday.date}-${holiday.name}`}
-                      className="rounded-xl border border-border bg-surface-2 px-3 py-2"
-                    >
-                      <p className="text-sm font-semibold text-foreground">
-                        {holiday.name}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted">
-                        {holiday.date}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </Panel>
-
-          {/* Local Backup Files */}
-          <Panel title="Local Backup & Transfer">
-            <div className="grid gap-3">
-              <button className="secondary-button" onClick={exportBackup}>
-                <FileDown aria-hidden="true" className="size-4" />
-                Backup JSON
               </button>
-              <button
-                className="secondary-button"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Upload aria-hidden="true" className="size-4" />
-                Import backup
-              </button>
-              {entries.length > 0 ? (
-                <button
-                  type="button"
-                  className="secondary-button text-danger hover:border-danger/60"
-                  onClick={clearAllEntries}
-                >
-                  <Trash2 aria-hidden="true" className="size-4" />
-                  Clear all classes
-                </button>
-              ) : null}
-              <input
-                ref={fileInputRef}
-                className="hidden"
-                type="file"
-                accept="application/json"
-                onChange={importBackup}
-              />
-              <p className="text-xs leading-5 text-muted">
-                Stores your schedule, attendance logs, and custom breaks. Use before switching browsers or phones.
-              </p>
-            </div>
-          </Panel>
-        </div>
+            ))}
+          </nav>
 
-        {/* Right Column: Attendance, Weekly Matrix, Overview */}
-        <div className="order-1 w-full min-w-0 space-y-4 sm:space-y-5 lg:order-2">
-          {holidayToday ? (
-            <div className="neo-card border-primary/40 px-3.5 py-3 sm:px-4" role="status">
-              <div className="flex items-start gap-3">
-                <CalendarDays aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-primary" />
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-foreground">
-                    {holidayToday.name}
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-muted">
-                    Today is an observed holiday or break. Alarms and notifications are paused.
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {message ? (
-            <div className="neo-card px-3.5 py-3 text-sm text-foreground sm:px-4" role="status">
-              {message}
-            </div>
-          ) : null}
-
-          {/* Key Metrics Bar */}
-          <div className="grid grid-cols-2 gap-2.5 sm:gap-4 xl:grid-cols-4">
-            <Metric label="Classes" value={String(entries.length)} />
-            <Metric
-              label="Notification"
-              value={
-                notificationState === "unsupported"
-                  ? "No"
-                  : notificationState === "granted"
-                    ? "On"
-                    : "Off"
-              }
-            />
-            <Metric
-              label="Attendance Logs"
-              value={String(attendanceRecords.length)}
-            />
-            <Metric
-              label="Wallpaper"
-              value={formatWallpaperSize(
-                selectedWallpaperSize.width,
-                selectedWallpaperSize.height,
-              )}
-            />
-          </div>
-
-          {/* Attendance Tracker (Phase 5) */}
-          <AttendanceTracker
-            entries={entries}
-            records={attendanceRecords}
-            todayName={todayName}
-            todayDateKey={todayDateKey}
-            onRecordAttendance={handleRecordAttendance}
-            onClearAttendance={handleClearAttendance}
-          />
-
-          {/* Schedule View (Toggleable Day View / Timetable Grid View) */}
-          <Panel
-            title="Class Schedule"
-            action={
-              <div className="flex items-center gap-1 rounded-xl border border-border/70 bg-surface-2 p-1">
-                <button
-                  type="button"
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                    viewMode === "day"
-                      ? "bg-surface text-foreground shadow-xs font-bold"
-                      : "text-muted hover:text-foreground"
-                  }`}
-                  onClick={() => setViewMode("day")}
-                >
-                  <List className="size-3.5" />
-                  Day List
-                </button>
-                <button
-                  type="button"
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                    viewMode === "grid"
-                      ? "bg-surface text-foreground shadow-xs font-bold"
-                      : "text-muted hover:text-foreground"
-                  }`}
-                  onClick={() => setViewMode("grid")}
-                >
-                  <LayoutGrid className="size-3.5" />
-                  Timetable Grid
-                </button>
-              </div>
-            }
+          <button
+            type="button"
+            className="icon-button border-border bg-surface"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           >
-            {viewMode === "grid" ? (
-              <TimetableGrid
+            {theme === "dark" ? (
+              <Sun aria-hidden="true" className="size-5" />
+            ) : (
+              <MoonStar aria-hidden="true" className="size-5" />
+            )}
+          </button>
+        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-6xl px-4 pb-36 pt-5 sm:px-6 sm:pt-8 md:pb-16">
+        {!now ? (
+          <div className="grid gap-4" aria-busy="true">
+            <div className="h-8 w-48 animate-pulse rounded-lg bg-surface-2" />
+            <div className="h-40 animate-pulse rounded-3xl bg-surface-2" />
+            <div className="h-28 animate-pulse rounded-2xl bg-surface-2" />
+          </div>
+        ) : (
+          <div key={tab} className="animate-fade-up">
+            {tab === "today" ? (
+              <TodayView
                 entries={entries}
-                visibleDays={visibleOverviewDays}
-                onEditEntry={editEntry}
+                records={attendanceRecords}
+                now={now}
+                todayName={todayName}
+                todayDateKey={todayDateKey}
+                holidayToday={holidayToday}
+                onRecordAttendance={handleRecordAttendance}
+                onAddClass={() => openAddForm(todayName)}
+                onOpenSchedule={() => goToTab("schedule")}
+                onOpenWallpaper={() => setPreviewOpen(true)}
+                onOpenReminders={() => goToTab("more", "reminders")}
+              />
+            ) : tab === "schedule" ? (
+              <ScheduleView
+                entries={entries}
+                viewMode={viewMode}
+                onViewModeChange={setViewMode}
+                selectedDay={selectedDay}
+                onSelectDay={setSelectedDay}
+                todayName={todayName}
+                nowMinutes={nowMinutes}
+                onAdd={openAddForm}
+                onEdit={openEditForm}
+                onDuplicate={duplicateEntry}
+                onDelete={deleteEntry}
+              />
+            ) : tab === "attendance" ? (
+              <AttendanceOverview
+                entries={sortedEntries}
+                records={attendanceRecords}
+                onClearAttendance={handleClearAttendance}
+                onAddClass={() => openAddForm()}
               />
             ) : (
-              <div>
-                {/* Day selector tabs */}
-                <div className="mb-4 grid w-full grid-cols-7 gap-1 sm:gap-2">
-                  {days.map((day) => (
-                    <button
-                      key={day}
-                      type="button"
-                      className={
-                        selectedDay === day
-                          ? "flex min-h-9 items-center justify-center rounded-lg bg-primary px-0.5 py-1.5 text-xs font-semibold text-white shadow-sm sm:min-h-10 sm:rounded-xl sm:px-3 sm:text-sm"
-                          : "flex min-h-9 items-center justify-center rounded-lg border border-border bg-surface px-0.5 py-1.5 text-xs font-semibold text-muted hover:border-primary/50 sm:min-h-10 sm:rounded-xl sm:px-3 sm:text-sm"
-                      }
-                      onClick={() => {
-                        setSelectedDay(day);
-                        if (form.days.length === 1) {
-                          updateForm("days", [day]);
-                        }
-                      }}
-                    >
-                      {day.slice(0, 3)}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {selectedEntries.length > 0 ? (
-                    selectedEntries.map((entry) => (
-                      <ScheduleRow
-                        key={entry.id}
-                        entry={entry}
-                        allEntries={entries}
-                        onEdit={() => editEntry(entry)}
-                        onDuplicate={() => duplicateEntry(entry)}
-                        onDelete={() => deleteEntry(entry.id)}
-                      />
-                    ))
-                  ) : (
-                    <div className="neo-inset p-5 text-center text-sm text-muted sm:p-6 sm:col-span-2">
-                      No schedule items for {selectedDay}.
-                    </div>
-                  )}
-                </div>
-              </div>
+              <MoreView
+                settings={settings}
+                setSettings={setSettings}
+                theme={theme}
+                onThemeChange={setTheme}
+                notificationState={notificationState}
+                onEnableNotifications={enableNotifications}
+                onExportCalendar={exportCalendar}
+                onOpenWallpaper={() => setPreviewOpen(true)}
+                onDownloadWallpaper={() => downloadWallpaper()}
+                onShareWallpaper={shareWallpaper}
+                canShare={canShare}
+                holidayCalendar={holidayCalendar}
+                setHolidayCalendar={setHolidayCalendar}
+                holidayLoading={holidayLoading}
+                nextHolidays={nextHolidays}
+                onDetectHolidays={detectAndRecordHolidays}
+                onSelectCountry={handleSelectCountry}
+                onExportBackup={exportBackup}
+                onImportBackup={importBackup}
+                onClearAll={clearAllEntries}
+                entryCount={entries.length}
+                onOpenFeedback={() => setFeedbackOpen(true)}
+                onMessage={setMessage}
+              />
             )}
-          </Panel>
+          </div>
+        )}
+      </main>
 
-          {/* Full Week Overview Cards */}
-          <div className="grid gap-3 sm:gap-4">
-            {visibleOverviewDays.map((day) => {
-              const dayEntries = entriesForDay(entries, day);
+      {/* Add-class button (phones) */}
+      {showFab ? (
+        <button
+          type="button"
+          className="fixed right-4 bottom-[calc(84px+env(safe-area-inset-bottom))] z-30 flex size-14 items-center justify-center rounded-2xl bg-primary-fill text-white shadow-[var(--shadow-lg)] transition active:scale-95 md:hidden"
+          onClick={() => openAddForm()}
+          aria-label="Add class"
+        >
+          <Plus aria-hidden="true" className="size-6" />
+        </button>
+      ) : null}
 
-              return (
-                <div
-                  key={day}
-                  className="neo-card grid min-w-0 max-w-full gap-3 p-3.5 sm:gap-4 sm:p-4 md:grid-cols-[130px_1fr] md:items-center"
+      {/* Bottom tab bar (phones and small tablets) */}
+      <nav
+        className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/90 backdrop-blur-lg md:hidden"
+        aria-label="Main"
+      >
+        <div className="mx-auto grid max-w-md grid-cols-4 px-2 pt-1.5">
+          {tabs.map(({ id, label, icon: Icon }) => {
+            const active = tab === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                aria-current={active ? "page" : undefined}
+                onClick={() => goToTab(id)}
+                className={`flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-xl py-1 text-[11px] font-semibold transition active:scale-95 ${
+                  active ? "text-primary" : "text-muted"
+                }`}
+              >
+                <span
+                  className={`relative flex h-8 w-14 items-center justify-center rounded-full transition ${
+                    active ? "bg-primary/15" : ""
+                  }`}
                 >
-                  <div className="flex items-center justify-between gap-3 md:block">
-                    <h3 className="text-sm font-semibold text-foreground sm:text-base">
-                      {day}
-                    </h3>
-                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-bold text-primary md:mt-2 md:inline-flex">
-                      {dayEntries.length} item{dayEntries.length === 1 ? "" : "s"}
-                    </span>
-                  </div>
-                  <div className="grid min-w-0 max-w-full gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {dayEntries.length > 0 ? (
-                      dayEntries.map((entry) => (
-                        <div
-                          key={entry.id}
-                          className="rounded-xl border border-border/80 bg-surface-2 p-3 text-xs"
-                          style={{
-                            borderLeftWidth: "4px",
-                            borderLeftColor: entry.accentColor,
-                          }}
-                        >
-                          <div className="flex items-center justify-between gap-1 font-semibold text-muted">
-                            <span>{formatTime(entry.start)} – {formatTime(entry.end)}</span>
-                            <span>{entry.type}</span>
-                          </div>
-                          <p className="mt-1 font-semibold text-foreground text-sm truncate">
-                            {entry.title}
-                          </p>
-                          <p className="text-muted truncate">
-                            {[entry.code, entry.room].filter(Boolean).join(" - ")}
-                          </p>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-xs text-muted">No classes scheduled.</p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                  <Icon aria-hidden="true" className="size-5" strokeWidth={active ? 2.4 : 2} />
+                  {id === "attendance" && hasAttendanceRisk ? (
+                    <span
+                      className="absolute right-3 top-0.5 size-2 rounded-full bg-danger ring-2 ring-surface"
+                      aria-label="Subjects at risk"
+                    />
+                  ) : null}
+                </span>
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* Toast */}
+      {toast ? (
+        <div
+          className={`pointer-events-none fixed inset-x-0 z-[60] flex justify-center px-4 md:bottom-6 ${
+            // Sit above the add-class button on phones so the two never overlap.
+            showFab
+              ? "bottom-[calc(152px+env(safe-area-inset-bottom))]"
+              : "bottom-[calc(84px+env(safe-area-inset-bottom))]"
+          }`}
+        >
+          <div
+            key={toast.id}
+            role="status"
+            className="animate-fade-up pointer-events-auto flex max-w-md items-center gap-3 rounded-2xl bg-foreground px-4 py-3 text-sm font-medium text-background shadow-[var(--shadow-lg)]"
+          >
+            <span className="min-w-0">{toast.text}</span>
+            {toast.action ? (
+              <button
+                type="button"
+                className="shrink-0 rounded-lg px-2 py-1 font-bold text-background underline-offset-2 hover:underline"
+                onClick={toast.action.onClick}
+              >
+                {toast.action.label}
+              </button>
+            ) : null}
           </div>
         </div>
-      </section>
+      ) : null}
 
-      {/* Wallpaper Preview Dialog */}
+      {formState ? (
+        <EntryFormSheet
+          initial={formState.initial}
+          editingId={formState.editingId}
+          entries={entries}
+          onSave={saveEntry}
+          onDelete={
+            formState.editingId
+              ? () => {
+                  const entry = entries.find((item) => item.id === formState.editingId);
+                  if (entry) deleteEntry(entry);
+                }
+              : undefined
+          }
+          onClose={() => setFormState(null)}
+        />
+      ) : null}
+
       {previewOpen ? (
         <PhonePreviewDialog
           settings={settings}
@@ -1582,15 +988,17 @@ export function ScheduleApp() {
         />
       ) : null}
 
-      {/* Feedback Widget */}
-      <FeedbackWidget
-        schoolPaletteId={settings.schoolPaletteId}
-        deviceSize={selectedWallpaperSize}
-        onEmailOpened={() =>
-          setMessage("Draft opened in your email app addressed to the developer.")
-        }
-      />
-    </main>
+      {feedbackOpen ? (
+        <FeedbackWidget
+          schoolPaletteId={settings.schoolPaletteId}
+          deviceSize={selectedWallpaperSize}
+          onEmailOpened={() =>
+            setMessage("Opening your email app with the report ready to send.")
+          }
+          onClose={() => setFeedbackOpen(false)}
+        />
+      ) : null}
+    </div>
   );
 }
 
