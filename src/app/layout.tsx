@@ -25,10 +25,12 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#256f53",
+  themeColor: "#f3f5f7",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  // Lets env(safe-area-inset-*) report the iPhone home-indicator area for the bottom tab bar.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

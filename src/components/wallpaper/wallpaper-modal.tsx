@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { ImageDown, Share2, X } from "lucide-react";
+import { ImageDown, Share2 } from "lucide-react";
 import {
   wallpaperExportFormats,
   wallpaperLayoutModes,
@@ -11,7 +11,6 @@ import {
   type ScheduleSettings,
   type SchoolPaletteId,
   type WallpaperExportFormat,
-  type WallpaperLayoutMode,
   type WallpaperSizeGroup,
   type WallpaperSizeId,
   type WallpaperStyle,
@@ -30,6 +29,7 @@ import {
 import {
   Field,
   RangeControl,
+  Sheet,
   ToggleControl,
 } from "@/components/ui/form-controls";
 
@@ -59,7 +59,7 @@ export function SchoolPalettePicker({
   onChange: (palette: SchoolPalette) => void;
 }) {
   return (
-    <Field label="Philippine school palette">
+    <Field label="School colors">
       <select
         className="field"
         value={selectedId}
@@ -81,11 +81,11 @@ export function SchoolPalettePicker({
           ),
         )}
       </select>
-      <div className="flex items-center gap-2" aria-label="Selected school colors">
+      <div className="flex items-center gap-1.5" aria-label="Selected school colors">
         {getSchoolPalette(selectedId).colors.map((color) => (
           <span
             key={color}
-            className="h-7 flex-1 rounded-lg border-2 border-border"
+            className="h-6 flex-1 rounded-lg border border-border"
             style={{ backgroundColor: color }}
           />
         ))}
@@ -104,8 +104,8 @@ export function WallpaperTemplatePicker({
   onChange: (style: WallpaperStyle) => void;
 }) {
   return (
-    <Field label="Wallpaper template">
-      <div className="grid grid-cols-2 gap-2">
+    <Field label="Style">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2">
         {wallpaperStyles.map((style) => {
           const palette = getWallpaperPalette(
             style,
@@ -121,7 +121,7 @@ export function WallpaperTemplatePicker({
               className={
                 selected
                   ? "template-option border-primary ring-2 ring-primary/30"
-                  : "template-option border-border"
+                  : "template-option border-border hover:border-primary/40"
               }
               onClick={() => onChange(style)}
             >
@@ -153,7 +153,17 @@ export function WallpaperControls({
   sizePreset: SelectedWallpaperSize;
 }) {
   return (
-    <div className="grid gap-3">
+    <div className="grid gap-5">
+      <Field label="Wallpaper title">
+        <input
+          className="field"
+          value={settings.wallpaperTitle}
+          placeholder="Class Schedule"
+          onChange={(event) =>
+            setSettings((current) => ({ ...current, wallpaperTitle: event.target.value }))
+          }
+        />
+      </Field>
       <WallpaperTemplatePicker
         value={settings.wallpaperStyle}
         schoolPaletteId={settings.schoolPaletteId}
@@ -161,25 +171,24 @@ export function WallpaperControls({
           setSettings((current) => ({ ...current, wallpaperStyle }))
         }
       />
-      <Field label="Layout">
-        <select
-          className="field"
-          value={settings.wallpaperLayoutMode}
-          onChange={(event) =>
-            setSettings((current) => ({
-              ...current,
-              wallpaperLayoutMode: event.target.value as WallpaperLayoutMode,
-            }))
-          }
-        >
+      <Field label="Spacing">
+        <div className="segmented w-full" role="group" aria-label="Wallpaper spacing">
           {wallpaperLayoutModes.map((layout) => (
-            <option key={layout} value={layout}>
+            <button
+              key={layout}
+              type="button"
+              className="flex-1 justify-center"
+              aria-pressed={settings.wallpaperLayoutMode === layout}
+              onClick={() =>
+                setSettings((current) => ({ ...current, wallpaperLayoutMode: layout }))
+              }
+            >
               {layout}
-            </option>
+            </button>
           ))}
-        </select>
+        </div>
       </Field>
-      <Field label="Wallpaper size">
+      <Field label="Screen size">
         <select
           className="field"
           value={settings.wallpaperSizeId}
@@ -253,23 +262,25 @@ export function WallpaperControls({
           {sizePreset.group} / {formatWallpaperSize(sizePreset.width, sizePreset.height)}
         </span>
       </Field>
-      <Field label="Export format">
-        <select
-          className="field"
-          value={settings.wallpaperExportFormat}
-          onChange={(event) =>
-            setSettings((current) => ({
-              ...current,
-              wallpaperExportFormat: event.target.value as WallpaperExportFormat,
-            }))
-          }
-        >
+      <Field label="File type">
+        <div className="segmented w-full" role="group" aria-label="Export format">
           {wallpaperExportFormats.map((format) => (
-            <option key={format} value={format}>
+            <button
+              key={format}
+              type="button"
+              className="flex-1 justify-center"
+              aria-pressed={settings.wallpaperExportFormat === format}
+              onClick={() =>
+                setSettings((current) => ({
+                  ...current,
+                  wallpaperExportFormat: format as WallpaperExportFormat,
+                }))
+              }
+            >
               {format}
-            </option>
+            </button>
           ))}
-        </select>
+        </div>
       </Field>
       <RangeControl
         label="Day label size"
@@ -284,7 +295,7 @@ export function WallpaperControls({
         }
       />
       <RangeControl
-        label="Class card text"
+        label="Class text size"
         min={18}
         max={42}
         value={settings.wallpaperCardTextSize}
@@ -295,36 +306,39 @@ export function WallpaperControls({
           }))
         }
       />
-      <ToggleControl
-        label="Auto-fit wallpaper"
-        checked={settings.wallpaperAutoFit}
-        onChange={(checked) =>
-          setSettings((current) => ({
-            ...current,
-            wallpaperAutoFit: checked,
-          }))
-        }
-      />
-      <ToggleControl
-        label="Show empty weekdays"
-        checked={settings.wallpaperShowEmptyWeekdays}
-        onChange={(checked) =>
-          setSettings((current) => ({
-            ...current,
-            wallpaperShowEmptyWeekdays: checked,
-          }))
-        }
-      />
-      <ToggleControl
-        label="Lock-screen clock safe margin"
-        checked={Boolean(settings.wallpaperClockSafetyZone)}
-        onChange={(checked) =>
-          setSettings((current) => ({
-            ...current,
-            wallpaperClockSafetyZone: checked,
-          }))
-        }
-      />
+      <div className="grid gap-2">
+        <ToggleControl
+          label="Auto-fit to screen"
+          description="Shrinks text only when your week doesn't fit."
+          checked={settings.wallpaperAutoFit}
+          onChange={(checked) =>
+            setSettings((current) => ({
+              ...current,
+              wallpaperAutoFit: checked,
+            }))
+          }
+        />
+        <ToggleControl
+          label="Show empty weekdays"
+          checked={settings.wallpaperShowEmptyWeekdays}
+          onChange={(checked) =>
+            setSettings((current) => ({
+              ...current,
+              wallpaperShowEmptyWeekdays: checked,
+            }))
+          }
+        />
+        <ToggleControl
+          label="Leave room for the lock-screen clock"
+          checked={Boolean(settings.wallpaperClockSafetyZone)}
+          onChange={(checked) =>
+            setSettings((current) => ({
+              ...current,
+              wallpaperClockSafetyZone: checked,
+            }))
+          }
+        />
+      </div>
     </div>
   );
 }
@@ -358,12 +372,13 @@ export function WallpaperCanvasPreview({
   }, [entries, settings, sizePreset]);
 
   return (
-    <div className="mx-auto w-full" style={{ maxWidth: isPortrait ? 430 : 920 }}>
+    // Smaller portrait preview on phones so the controls below stay within reach.
+    <div className={`mx-auto w-full ${isPortrait ? "max-w-[230px] sm:max-w-[360px]" : "max-w-[920px]"}`}>
       <div
         className={
           isPortrait
-            ? "rounded-[42px] bg-[#08080a] p-3 shadow-[0_38px_90px_-36px_rgba(0,0,0,0.62)] ring-1 ring-white/10"
-            : "rounded-[28px] bg-[#121316] p-3 shadow-[0_38px_90px_-36px_rgba(0,0,0,0.62)] ring-1 ring-white/10"
+            ? "rounded-[40px] bg-[#08080a] p-2.5 shadow-[0_30px_70px_-30px_rgba(0,0,0,0.6)] ring-1 ring-white/10"
+            : "rounded-[24px] bg-[#121316] p-2.5 shadow-[0_30px_70px_-30px_rgba(0,0,0,0.6)] ring-1 ring-white/10"
         }
       >
         <canvas
@@ -371,14 +386,14 @@ export function WallpaperCanvasPreview({
           className={
             isPortrait
               ? "block h-auto w-full rounded-[32px]"
-              : "block h-auto w-full rounded-[18px]"
+              : "block h-auto w-full rounded-[16px]"
           }
           style={{ aspectRatio: `${sizePreset.width} / ${sizePreset.height}` }}
         />
       </div>
-      <div className="neo-card mt-3 p-4 text-sm leading-6 text-muted">
-        This canvas uses the exact wallpaper renderer that creates the downloaded file.
-      </div>
+      <p className="mt-3 text-center text-xs leading-5 text-muted">
+        This is exactly what your downloaded wallpaper will look like.
+      </p>
     </div>
   );
 }
@@ -403,82 +418,51 @@ export function PhonePreviewDialog({
   const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
 
   return (
-    <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/72 px-4 py-5 backdrop-blur-sm sm:px-6"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="phone-preview-title"
+    <Sheet
+      size="xl"
+      title="Wallpaper maker"
+      description={`${sizePreset.label} · ${formatWallpaperSize(sizePreset.width, sizePreset.height)}`}
+      onClose={onClose}
+      footer={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {canShare && onShare ? (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => onShare()}
+              title="Share via your phone's share sheet"
+            >
+              <Share2 aria-hidden="true" className="size-4" />
+              Share
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="primary-button flex-1 sm:flex-none"
+            onClick={() => onDownload(settings.wallpaperExportFormat)}
+          >
+            <ImageDown aria-hidden="true" className="size-4" />
+            Download {settings.wallpaperExportFormat}
+          </button>
+        </div>
+      }
     >
-      <div className="mx-auto flex min-h-full w-full max-w-7xl items-center justify-center">
-        <div className="w-full rounded-2xl border border-white/10 bg-surface p-4 shadow-[0_32px_110px_-30px_rgba(0,0,0,0.7)] sm:p-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2
-                id="phone-preview-title"
-                className="text-lg font-semibold text-foreground"
-              >
-                Wallpaper Preview & Customizer
-              </h2>
-              <p className="mt-1 text-sm text-muted">
-                {sizePreset.label} -{" "}
-                {formatWallpaperSize(sizePreset.width, sizePreset.height)} -{" "}
-                {settings.wallpaperLayoutMode}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {canShare && onShare ? (
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => onShare()}
-                  title="Share directly via mobile share sheet"
-                >
-                  <Share2 aria-hidden="true" className="size-4" />
-                  Share
-                </button>
-              ) : null}
-              <button
-                className="primary-button"
-                onClick={() => onDownload(settings.wallpaperExportFormat)}
-              >
-                <ImageDown aria-hidden="true" className="size-4" />
-                Download {settings.wallpaperExportFormat}
-              </button>
-              <button
-                className="secondary-button"
-                onClick={() =>
-                  onDownload(settings.wallpaperExportFormat === "PNG" ? "JPG" : "PNG")
-                }
-              >
-                <ImageDown aria-hidden="true" className="size-4" />
-                {settings.wallpaperExportFormat === "PNG" ? "JPG" : "PNG"}
-              </button>
-              <button
-                className="secondary-button"
-                aria-label="Close phone preview"
-                onClick={onClose}
-              >
-                <X aria-hidden="true" className="size-4" />
-                Close
-              </button>
-            </div>
-          </div>
-          <div className="grid gap-5 lg:grid-cols-[320px_1fr] lg:items-start">
-            <div className="neo-inset p-4 lg:max-h-[78vh] lg:overflow-y-auto">
-              <WallpaperControls
-                settings={settings}
-                setSettings={setSettings}
-                sizePreset={sizePreset}
-              />
-            </div>
-            <WallpaperCanvasPreview
-              settings={settings}
-              entries={entries}
-              sizePreset={sizePreset}
-            />
-          </div>
+      <div className="grid gap-6 lg:grid-cols-[340px_1fr] lg:items-start">
+        <div className="order-2 lg:order-1">
+          <WallpaperControls
+            settings={settings}
+            setSettings={setSettings}
+            sizePreset={sizePreset}
+          />
+        </div>
+        <div className="order-1 lg:sticky lg:top-0 lg:order-2">
+          <WallpaperCanvasPreview
+            settings={settings}
+            entries={entries}
+            sizePreset={sizePreset}
+          />
         </div>
       </div>
-    </div>
+    </Sheet>
   );
 }
