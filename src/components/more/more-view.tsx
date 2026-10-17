@@ -242,8 +242,8 @@ export function MoreView({
               />
             </div>
             <p className="mt-3 text-xs leading-5 text-muted">
-              Everything is stored only on this device. Backups include classes, attendance and
-              breaks.
+              Everything is stored only on this device. Backups include your classes, settings
+              and school breaks.
             </p>
           </Panel>
 

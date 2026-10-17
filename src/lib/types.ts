@@ -78,14 +78,6 @@ export const wallpaperSizePresets = [
   { id: "android-modern-qhd", group: "Android", label: "Modern QHD+ flagship", width: 1440, height: 3200 },
 ] as const;
 
-export const attendanceStatuses = [
-  "Present",
-  "Late",
-  "Absent",
-  "Excused",
-  "Suspended",
-] as const;
-
 export type DayName = (typeof days)[number];
 export type ScheduleType = (typeof scheduleTypes)[number];
 export type WallpaperStyle = (typeof wallpaperStyles)[number];
@@ -94,9 +86,8 @@ export type WallpaperExportFormat = (typeof wallpaperExportFormats)[number];
 export type SchoolPaletteId = (typeof schoolPaletteIds)[number];
 export type WallpaperSizeGroup = (typeof wallpaperSizePresets)[number]["group"];
 export type WallpaperSizeId = (typeof wallpaperSizePresets)[number]["id"];
-export type AttendanceStatus = (typeof attendanceStatuses)[number];
 export type ScheduleViewMode = "day" | "week" | "grid";
-export type AppTab = "today" | "schedule" | "attendance" | "more";
+export type AppTab = "today" | "schedule" | "more";
 
 export type ScheduleEntry = {
   id: string;
@@ -109,7 +100,6 @@ export type ScheduleEntry = {
   type: ScheduleType;
   reminderMinutes: number;
   accentColor: string;
-  maxAbsences?: number; // maximum allowed absences/cuts before failing
 };
 
 export type ScheduleSettings = {
@@ -127,14 +117,6 @@ export type ScheduleSettings = {
   wallpaperShowEmptyWeekdays: boolean;
   wallpaperExportFormat: WallpaperExportFormat;
   wallpaperClockSafetyZone?: boolean; // add extra margin at the top for phone lock clock
-};
-
-export type AttendanceRecord = {
-  id: string;
-  entryId: string;
-  date: string; // YYYY-MM-DD
-  status: AttendanceStatus;
-  note?: string;
 };
 
 export type CustomBreak = {

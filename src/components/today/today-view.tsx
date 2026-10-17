@@ -11,13 +11,7 @@ import {
   MapPin,
   PartyPopper,
 } from "lucide-react";
-import type {
-  AttendanceRecord,
-  AttendanceStatus,
-  DayName,
-  PublicHoliday,
-  ScheduleEntry,
-} from "@/lib/types";
+import type { DayName, PublicHoliday, ScheduleEntry } from "@/lib/types";
 import {
   dayNameForDate,
   entriesForDay,
@@ -26,7 +20,8 @@ import {
   formatTimeRange,
   timeToMinutes,
 } from "@/lib/utils";
-import { CheckInCard } from "@/components/attendance/attendance-tracker";
+import { getEntryAccentColor } from "@/lib/wallpaper-renderer";
+import { tintAccent } from "@/components/schedule/schedule-row";
 
 function greetingFor(hour: number) {
   if (hour < 12) return "Good morning";
@@ -47,24 +42,20 @@ function findNextSchoolDay(entries: ScheduleEntry[], now: Date) {
 
 export function TodayView({
   entries,
-  records,
   now,
   todayName,
-  todayDateKey,
   holidayToday,
-  onRecordAttendance,
+  onEditClass,
   onAddClass,
   onOpenSchedule,
   onOpenWallpaper,
   onOpenReminders,
 }: {
   entries: ScheduleEntry[];
-  records: AttendanceRecord[];
   now: Date;
   todayName: DayName;
-  todayDateKey: string;
   holidayToday?: PublicHoliday;
-  onRecordAttendance: (entryId: string, status: AttendanceStatus) => void;
+  onEditClass: (entry: ScheduleEntry) => void;
   onAddClass: () => void;
   onOpenSchedule: () => void;
   onOpenWallpaper: () => void;
@@ -77,9 +68,6 @@ export function TodayView({
   );
   const next = todayEntries.find((e) => timeToMinutes(e.start) > nowMinutes);
   const nextSchoolDay = useMemo(() => findNextSchoolDay(entries, now), [entries, now]);
-  const checkedIn = todayEntries.filter((e) =>
-    records.some((r) => r.entryId === e.id && r.date === todayDateKey),
-  ).length;
 
   const dateLabel = now.toLocaleDateString(undefined, {
     weekday: "long",
@@ -155,7 +143,7 @@ export function TodayView({
           <h2 className="text-lg font-semibold text-foreground">Today&apos;s classes</h2>
           {todayEntries.length > 0 ? (
             <span className="text-sm text-muted">
-              {checkedIn} of {todayEntries.length} checked in
+              {todayEntries.length} class{todayEntries.length === 1 ? "" : "es"}
             </span>
           ) : null}
         </div>
@@ -169,21 +157,18 @@ export function TodayView({
             </div>
           </div>
         ) : (
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid gap-2.5 lg:grid-cols-2">
             {todayEntries.map((entry) => {
               const start = timeToMinutes(entry.start);
               const end = timeToMinutes(entry.end);
               const status =
                 nowMinutes >= end ? "done" : nowMinutes >= start ? "now" : "upcoming";
               return (
-                <CheckInCard
+                <TodayClassCard
                   key={entry.id}
                   entry={entry}
                   status={status}
-                  current={
-                    records.find((r) => r.entryId === entry.id && r.date === todayDateKey)?.status
-                  }
-                  onRecord={onRecordAttendance}
+                  onClick={() => onEditClass(entry)}
                 />
               );
             })}
@@ -203,6 +188,58 @@ export function TodayView({
         <ArrowRight aria-hidden="true" className="size-4 text-muted" />
       </button>
     </div>
+  );
+}
+
+function TodayClassCard({
+  entry,
+  status,
+  onClick,
+}: {
+  entry: ScheduleEntry;
+  status: "now" | "done" | "upcoming";
+  onClick: () => void;
+}) {
+  const accent = getEntryAccentColor(entry);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Edit ${entry.title}`}
+      className={`flex w-full items-stretch overflow-hidden rounded-2xl border text-left transition active:opacity-70 ${
+        status === "now" ? "border-primary/60 ring-2 ring-primary/15" : "border-border"
+      } ${status === "done" ? "opacity-60" : ""}`}
+      style={{ background: tintAccent(accent, 8) }}
+    >
+      <span className="w-1.5 shrink-0" style={{ backgroundColor: accent }} aria-hidden="true" />
+      <span className="min-w-0 flex-1 px-4 py-3">
+        <span className="flex flex-wrap items-center gap-2 text-xs font-semibold text-muted">
+          <span className="tabular-nums">{formatTimeRange(entry.start, entry.end)}</span>
+          {status === "now" ? (
+            <span className="rounded-full bg-primary-fill px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
+              Now
+            </span>
+          ) : status === "done" ? (
+            <span>· Done</span>
+          ) : null}
+        </span>
+        <span className="mt-0.5 block break-words text-base font-semibold text-foreground">
+          {entry.title}
+        </span>
+        {entry.room || entry.code ? (
+          <span className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[13px] text-muted">
+            {entry.room ? (
+              <span className="inline-flex items-center gap-1">
+                <MapPin aria-hidden="true" className="size-3.5" />
+                {entry.room}
+              </span>
+            ) : null}
+            {entry.code ? <span>{entry.code}</span> : null}
+          </span>
+        ) : null}
+      </span>
+    </button>
   );
 }
 

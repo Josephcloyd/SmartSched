@@ -273,32 +273,19 @@ export function EntryFormSheet({
           </div>
         </Field>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Remind me">
-            <select
-              className="field"
-              value={form.reminderMinutes}
-              onChange={(event) => update("reminderMinutes", Number(event.target.value))}
-            >
-              {reminderChoices.map((minutes) => (
-                <option key={minutes} value={minutes}>
-                  {minutes === 0 ? "When it starts" : `${minutes} min before`}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <TextInput
-            label="Allowed absences"
-            type="number"
-            min={1}
-            placeholder="3"
-            value={form.maxAbsences === undefined ? "" : String(form.maxAbsences)}
-            onChange={(value) =>
-              update("maxAbsences", value === "" ? undefined : Math.max(1, Number(value) || 1))
-            }
-            hint="Before you risk failing"
-          />
-        </div>
+        <Field label="Remind me">
+          <select
+            className="field"
+            value={form.reminderMinutes}
+            onChange={(event) => update("reminderMinutes", Number(event.target.value))}
+          >
+            {reminderChoices.map((minutes) => (
+              <option key={minutes} value={minutes}>
+                {minutes === 0 ? "When it starts" : `${minutes} min before`}
+              </option>
+            ))}
+          </select>
+        </Field>
 
         {conflicts.length > 0 ? (
           <p className="flex gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm leading-6 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/40 dark:text-amber-200">
