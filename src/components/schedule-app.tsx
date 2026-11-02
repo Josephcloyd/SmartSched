@@ -73,7 +73,9 @@ const storageKey = "smartsched.local.schedule.v1";
 const notifiedKey = "smartsched.local.notified.v1";
 const themeKey = "smartsched.local.theme.v1";
 const privacyNoteKey = "smartsched.local.privacy-note-dismissed.v1";
-const SPLASH_MIN_MS = 900;
+// The splash intro (hex trace → tree draw → wordmark → caption) finishes at ~1.3s.
+// Hold 1.45s, then a 0.35s fade-out = ~1.8s total on screen.
+const SPLASH_MIN_MS = 1450;
 
 const defaultSettings: ScheduleSettings = {
   schoolPaletteId: "university-of-cebu",
@@ -284,6 +286,8 @@ export function ScheduleApp() {
   const [privacyNoteDismissed, setPrivacyNoteDismissed] = useState(true);
   // Keep the branded splash up briefly even on fast devices so it doesn't just flicker.
   const [splashDone, setSplashDone] = useState(false);
+  // Unmount the splash only after its exit fade has played.
+  const [splashGone, setSplashGone] = useState(false);
   const [canShare, setCanShare] = useState(false);
   const [detectedDeviceSize, setDetectedDeviceSize] = useState({
     width: 1080,
@@ -731,7 +735,18 @@ export function ScheduleApp() {
 
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-background text-foreground">
-      {!now || !splashDone ? <SplashScreen /> : null}
+      {splashGone ? null : (
+        <div
+          className={now && splashDone ? "lm-splash-exit" : undefined}
+          aria-hidden={now && splashDone ? true : undefined}
+          onAnimationEnd={(event) => {
+            // Splash child animations bubble here too — only react to the wrapper's own fade.
+            if (event.target === event.currentTarget) setSplashGone(true);
+          }}
+        >
+          <SplashScreen />
+        </div>
+      )}
 
       {/* App bar */}
       <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 pt-[env(safe-area-inset-top)] backdrop-blur-lg">
