@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { ImageDown, Share2 } from "lucide-react";
+import { ImageDown, Laptop, Share2, Smartphone, Tablet } from "lucide-react";
 import {
+  wallpaperDevices,
   wallpaperExportFormats,
   wallpaperLayoutModes,
   wallpaperSizePresets,
@@ -10,11 +11,17 @@ import {
   type ScheduleEntry,
   type ScheduleSettings,
   type SchoolPaletteId,
+  type WallpaperDevice,
   type WallpaperExportFormat,
   type WallpaperSizeGroup,
   type WallpaperSizeId,
   type WallpaperStyle,
 } from "@/lib/types";
+import {
+  deviceDescriptions,
+  deviceSizeGroups,
+  sizeIdForDevice,
+} from "@/lib/wallpaper-devices";
 import {
   getSchoolPalette,
   schoolPalettes,
@@ -33,13 +40,16 @@ import {
   ToggleControl,
 } from "@/components/ui/form-controls";
 
-const wallpaperSizeGroups: WallpaperSizeGroup[] = [
-  "Device",
-  "Custom",
-  "Desktop",
-  "iPhone",
-  "Android",
-];
+const deviceIcons: Record<WallpaperDevice, typeof Smartphone> = {
+  Phone: Smartphone,
+  Tablet,
+  Laptop,
+};
+
+const sizeGroupLabels: Partial<Record<WallpaperSizeGroup, string>> = {
+  Device: "Detected",
+  Desktop: "Laptop / desktop",
+};
 
 export type WallpaperSizePreset = (typeof wallpaperSizePresets)[number];
 export type SelectedWallpaperSize = Omit<WallpaperSizePreset, "width" | "height"> & {
@@ -143,15 +153,72 @@ export function WallpaperTemplatePicker({
   );
 }
 
+/** "Make it for: Phone | Tablet | Laptop" — picks a matching size and layout in one tap. */
+export function DevicePicker({
+  value,
+  detectedDevice,
+  onChange,
+}: {
+  value: WallpaperDevice;
+  detectedDevice: WallpaperDevice;
+  onChange: (device: WallpaperDevice) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-sm font-medium text-foreground">Make it for</p>
+      <div className="grid grid-cols-3 gap-2" role="group" aria-label="Wallpaper device">
+        {wallpaperDevices.map((device) => {
+          const Icon = deviceIcons[device];
+          const selected = value === device;
+          return (
+            <button
+              key={device}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onChange(device)}
+              className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-2xl border px-2 py-2 text-sm font-semibold transition active:scale-[0.98] ${
+                selected
+                  ? "border-primary-fill bg-primary-fill text-white shadow-[var(--shadow-md)]"
+                  : "border-border bg-surface text-muted hover:border-primary/40 hover:text-foreground"
+              }`}
+            >
+              <Icon aria-hidden="true" className="size-5" />
+              <span>
+                {device}
+                {device === detectedDevice ? (
+                  <span className={`ml-1 text-[11px] font-medium ${selected ? "text-white/80" : "text-muted"}`}>
+                    (this one)
+                  </span>
+                ) : null}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-xs text-muted">{deviceDescriptions[value]}</p>
+    </div>
+  );
+}
+
 export function WallpaperControls({
   settings,
   setSettings,
   sizePreset,
+  detectedDevice,
 }: {
   settings: ScheduleSettings;
   setSettings: (updater: (current: ScheduleSettings) => ScheduleSettings) => void;
   sizePreset: SelectedWallpaperSize;
+  detectedDevice: WallpaperDevice;
 }) {
+  const device = settings.wallpaperDevice ?? detectedDevice;
+  // Only offer sizes for the chosen device (plus "this device" when it matches, and custom).
+  const sizeGroups: WallpaperSizeGroup[] = [
+    ...(device === detectedDevice ? (["Device"] as const) : []),
+    ...deviceSizeGroups[device],
+    "Custom",
+  ];
+
   return (
     <div className="grid gap-5">
       <Field label="Wallpaper title">
@@ -191,7 +258,7 @@ export function WallpaperControls({
       <Field label="Screen size">
         <select
           className="field"
-          value={settings.wallpaperSizeId}
+          value={sizePreset.id}
           onChange={(event) =>
             setSettings((current) => ({
               ...current,
@@ -199,8 +266,8 @@ export function WallpaperControls({
             }))
           }
         >
-          {wallpaperSizeGroups.map((group) => (
-            <optgroup key={group} label={group}>
+          {sizeGroups.map((group) => (
+            <optgroup key={group} label={sizeGroupLabels[group] ?? group}>
               {wallpaperSizePresets
                 .filter((preset) => preset.group === group)
                 .map((preset) => (
@@ -403,6 +470,7 @@ export function PhonePreviewDialog({
   setSettings,
   entries,
   sizePreset,
+  detectedDevice,
   onClose,
   onDownload,
   onShare,
@@ -411,6 +479,7 @@ export function PhonePreviewDialog({
   setSettings: (updater: (current: ScheduleSettings) => ScheduleSettings) => void;
   entries: ScheduleEntry[];
   sizePreset: SelectedWallpaperSize;
+  detectedDevice: WallpaperDevice;
   onClose: () => void;
   onDownload: (format?: WallpaperExportFormat) => void | Promise<void>;
   onShare?: () => void | Promise<void>;
@@ -447,12 +516,26 @@ export function PhonePreviewDialog({
         </div>
       }
     >
+      <div className="mb-6 border-b border-border pb-5">
+        <DevicePicker
+          value={settings.wallpaperDevice ?? detectedDevice}
+          detectedDevice={detectedDevice}
+          onChange={(device) =>
+            setSettings((current) => ({
+              ...current,
+              wallpaperDevice: device,
+              wallpaperSizeId: sizeIdForDevice(device, detectedDevice),
+            }))
+          }
+        />
+      </div>
       <div className="grid gap-6 lg:grid-cols-[340px_1fr] lg:items-start">
         <div className="order-2 lg:order-1">
           <WallpaperControls
             settings={settings}
             setSettings={setSettings}
             sizePreset={sizePreset}
+            detectedDevice={detectedDevice}
           />
         </div>
         <div className="order-1 lg:sticky lg:top-0 lg:order-2">

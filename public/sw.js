@@ -1,4 +1,4 @@
-const CACHE_NAME = "smartsched-local-v24";
+const CACHE_NAME = "smartsched-local-v30";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -46,5 +46,16 @@ self.addEventListener("fetch", (event) => {
         return response;
       })
       .catch(() => caches.match(event.request).then((cached) => cached || caches.match("/"))),
+  );
+});
+
+// Tapping a class reminder focuses an open SmartSched tab, or opens one.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      const existing = clients.find((client) => "focus" in client);
+      return existing ? existing.focus() : self.clients.openWindow("/");
+    }),
   );
 });

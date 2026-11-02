@@ -215,13 +215,16 @@ export function Sheet({
   children,
   footer,
   size = "md",
+  bare = false,
 }: {
   title: string;
   description?: React.ReactNode;
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
-  size?: "md" | "xl";
+  size?: "md" | "lg" | "xl";
+  /** Skip the standard header and body padding; children render their own (with a heading using `sheetTitleId(title)`). */
+  bare?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -276,7 +279,7 @@ export function Sheet({
     setDragStartY(event.clientY);
   }
 
-  const titleId = `sheet-${title.replace(/\W+/g, "-").toLowerCase()}`;
+  const titleId = sheetTitleId(title);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
@@ -292,7 +295,7 @@ export function Sheet({
         aria-labelledby={titleId}
         tabIndex={-1}
         className={`animate-sheet-up relative flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-3xl border border-border bg-surface shadow-[var(--shadow-lg)] outline-none sm:rounded-3xl ${
-          size === "xl" ? "sm:max-w-6xl" : "sm:max-w-xl"
+          size === "xl" ? "sm:max-w-6xl" : size === "lg" ? "sm:max-w-3xl" : "sm:max-w-xl"
         }`}
         style={{
           // `translate` (not `transform`) so it composes with the open animation's fill state.
@@ -301,29 +304,37 @@ export function Sheet({
         }}
       >
         <div
-          className="flex shrink-0 cursor-grab touch-none justify-center pb-1 pt-2.5 sm:hidden"
+          className={`flex shrink-0 cursor-grab touch-none justify-center pb-1 pt-2.5 sm:hidden ${
+            bare ? "absolute inset-x-0 top-0 z-10" : ""
+          }`}
           onPointerDown={startDrag}
           aria-hidden="true"
         >
-          <span className="h-1.5 w-10 rounded-full bg-border" />
+          <span className={`h-1.5 w-10 rounded-full ${bare ? "bg-white/40" : "bg-border"}`} />
         </div>
-        <header
-          className="flex shrink-0 touch-none items-start justify-between gap-3 border-b border-border px-5 pb-4 pt-2 sm:touch-auto sm:pt-5"
-          onPointerDown={startDrag}
-        >
-          <div className="min-w-0">
-            <h2 id={titleId} className="text-lg font-semibold text-foreground">
-              {title}
-            </h2>
-            {description ? (
-              <div className="mt-0.5 text-sm text-muted">{description}</div>
-            ) : null}
-          </div>
-          <button type="button" className="icon-button -mr-2" aria-label="Close" onClick={onClose}>
-            <X aria-hidden="true" className="size-5" />
-          </button>
-        </header>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">{children}</div>
+        {bare ? (
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
+        ) : (
+          <>
+            <header
+              className="flex shrink-0 touch-none items-start justify-between gap-3 border-b border-border px-5 pb-4 pt-2 sm:touch-auto sm:pt-5"
+              onPointerDown={startDrag}
+            >
+              <div className="min-w-0">
+                <h2 id={titleId} className="text-lg font-semibold text-foreground">
+                  {title}
+                </h2>
+                {description ? (
+                  <div className="mt-0.5 text-sm text-muted">{description}</div>
+                ) : null}
+              </div>
+              <button type="button" className="icon-button -mr-2" aria-label="Close" onClick={onClose}>
+                <X aria-hidden="true" className="size-5" />
+              </button>
+            </header>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">{children}</div>
+          </>
+        )}
         {footer ? (
           <footer className="pb-safe shrink-0 border-t border-border bg-surface px-5 pt-3 sm:pb-4">
             {footer}
@@ -359,4 +370,9 @@ export function EmptyState({
       {action ? <div className="mt-4">{action}</div> : null}
     </div>
   );
+}
+
+/** The id a Sheet uses for aria-labelledby; bare sheets put it on their own heading. */
+export function sheetTitleId(title: string) {
+  return `sheet-${title.replace(/\W+/g, "-").toLowerCase()}`;
 }

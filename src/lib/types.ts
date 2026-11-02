@@ -76,7 +76,15 @@ export const wallpaperSizePresets = [
   { id: "android-qhd", group: "Android", label: "Older QHD", width: 1440, height: 2560 },
   { id: "android-qhd-samsung", group: "Android", label: "QHD+ Samsung / flagship", width: 1440, height: 2960 },
   { id: "android-modern-qhd", group: "Android", label: "Modern QHD+ flagship", width: 1440, height: 3200 },
+  { id: "tablet-ipad", group: "Tablet", label: "iPad (10th gen) / iPad Air 11\"", width: 1640, height: 2360 },
+  { id: "tablet-ipad-mini", group: "Tablet", label: "iPad mini", width: 1488, height: 2266 },
+  { id: "tablet-ipad-pro-11", group: "Tablet", label: "iPad Pro 11\"", width: 1668, height: 2388 },
+  { id: "tablet-ipad-pro-13", group: "Tablet", label: "iPad Pro / Air 13\"", width: 2048, height: 2732 },
+  { id: "tablet-android", group: "Tablet", label: "Android tablet (Galaxy Tab S series)", width: 1600, height: 2560 },
+  { id: "tablet-android-budget", group: "Tablet", label: "Budget Android tablet", width: 1200, height: 1920 },
 ] as const;
+
+export const wallpaperDevices = ["Phone", "Tablet", "Laptop"] as const;
 
 export type DayName = (typeof days)[number];
 export type ScheduleType = (typeof scheduleTypes)[number];
@@ -86,6 +94,7 @@ export type WallpaperExportFormat = (typeof wallpaperExportFormats)[number];
 export type SchoolPaletteId = (typeof schoolPaletteIds)[number];
 export type WallpaperSizeGroup = (typeof wallpaperSizePresets)[number]["group"];
 export type WallpaperSizeId = (typeof wallpaperSizePresets)[number]["id"];
+export type WallpaperDevice = (typeof wallpaperDevices)[number];
 export type ScheduleViewMode = "day" | "week" | "grid";
 export type AppTab = "today" | "schedule" | "more";
 
@@ -117,6 +126,7 @@ export type ScheduleSettings = {
   wallpaperShowEmptyWeekdays: boolean;
   wallpaperExportFormat: WallpaperExportFormat;
   wallpaperClockSafetyZone?: boolean; // add extra margin at the top for phone lock clock
+  wallpaperDevice?: WallpaperDevice; // which kind of screen the wallpaper is for
 };
 
 export type CustomBreak = {

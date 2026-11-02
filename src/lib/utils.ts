@@ -49,7 +49,11 @@ export function sortEntries(entries: ScheduleEntry[]) {
 }
 
 export function entriesForDay(entries: ScheduleEntry[], day: DayName) {
-  return sortEntries(entries).filter((entry) => entry.days.includes(day));
+  // Sort by time within the day; sortEntries orders by an entry's *first* day,
+  // which would put a Mon/Thu 1 PM class ahead of a Thursday-only 8 AM class.
+  return entries
+    .filter((entry) => entry.days.includes(day))
+    .sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start));
 }
 
 export function conflictingEntries(
