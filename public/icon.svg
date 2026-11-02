@@ -1,5 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#256f53"/>
-  <path fill="#fff" d="M132 142h248c22 0 40 18 40 40v198c0 22-18 40-40 40H132c-22 0-40-18-40-40V182c0-22 18-40 40-40Zm0 86h248v-46H132v46Zm42 62h62v-38h-62v38Zm101 0h62v-38h-62v38Zm-101 75h62v-38h-62v38Zm101 0h62v-38h-62v38Z"/>
-  <path fill="#f0b75c" d="M164 98h36v74h-36V98Zm148 0h36v74h-36V98Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <title>SmartSched by GetLaunchPH</title>
+  <rect width="48" height="48" rx="10" fill="#141414"/>
+  <path d="M24 2.6 43 13.5c1.2.7 2 2 2 3.4v14.2c0 1.4-.8 2.7-2 3.4L24 45.4 5 34.5a4 4 0 0 1-2-3.4V16.9c0-1.4.8-2.7 2-3.4L24 2.6Z" fill="#F6F5F0"/>
+  <g fill="none" stroke="#334D44" stroke-width="3.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M24 15.8v22.4M14.5 23.7v9.1H24M33.8 22.7v7H24"/>
+    <circle cx="24" cy="12.2" r="4.5" fill="#F6F5F0"/>
+    <circle cx="14.5" cy="20.2" r="4.5" fill="#F6F5F0"/>
+    <circle cx="33.8" cy="19.2" r="4.5" fill="#F6F5F0"/>
+  </g>
+  <rect x="19.4" y="35.8" width="9.2" height="6.3" rx="1.9" fill="#334D44"/>
 </svg>

@@ -1,14 +1,15 @@
 import type { MetadataRoute } from "next";
+import { brand } from "@/lib/brand";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "SmartSched",
-    short_name: "SmartSched",
-    description: "Local school schedule planner with wallpaper and reminder exports.",
+    name: `${brand.appName} by ${brand.company}`,
+    short_name: brand.appName,
+    description: `${brand.tagline}. Your schedule stays on your device.`,
     start_url: "/",
     display: "standalone",
-    background_color: "#f7f8f5",
-    theme_color: "#256f53",
+    background_color: "#141414",
+    theme_color: "#141414",
     icons: [
       {
         src: "/icon.svg",

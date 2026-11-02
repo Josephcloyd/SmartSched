@@ -1,13 +1,24 @@
 "use client";
 
 import { Fragment, useMemo, useRef } from "react";
-import { CalendarPlus, CalendarRange, LayoutGrid, List, MapPin, Plus } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarPlus,
+  CalendarRange,
+  Check,
+  ImageDown,
+  LayoutGrid,
+  List,
+  MapPin,
+  Plus,
+} from "lucide-react";
 import { days, type DayName, type ScheduleEntry, type ScheduleViewMode } from "@/lib/types";
 import { entriesForDay, formatTime, formatTimeRange, timeToMinutes } from "@/lib/utils";
 import { getEntryAccentColor } from "@/lib/wallpaper-renderer";
 import { EmptyState } from "@/components/ui/form-controls";
 import { FreeGap, ScheduleRow, tintAccent } from "@/components/schedule/schedule-row";
 import { TimetableGrid } from "@/components/schedule/timetable-grid";
+import { SupportCard } from "@/components/brand/support";
 
 const viewOptions: { id: ScheduleViewMode; label: string; icon: typeof List }[] = [
   { id: "day", label: "Day", icon: List },
@@ -27,6 +38,9 @@ export function ScheduleView({
   onEdit,
   onDuplicate,
   onDelete,
+  onPreview,
+  onNext,
+  onSupport,
 }: {
   entries: ScheduleEntry[];
   viewMode: ScheduleViewMode;
@@ -39,6 +53,9 @@ export function ScheduleView({
   onEdit: (entry: ScheduleEntry) => void;
   onDuplicate: (entry: ScheduleEntry) => void;
   onDelete: (entry: ScheduleEntry) => void;
+  onPreview: () => void;
+  onNext: () => void;
+  onSupport: () => void;
 }) {
   // Weekends stay available, but only show up in week/grid views when they have classes.
   const weekDays = useMemo(
@@ -76,6 +93,19 @@ export function ScheduleView({
               </button>
             ))}
           </div>
+          {entries.length > 0 ? (
+            // Icon-only on phones (next to the view switcher); labelled on larger screens.
+            <button
+              type="button"
+              className="secondary-button shrink-0 px-3 md:px-4"
+              onClick={onPreview}
+              aria-label="Preview and download wallpaper"
+              title="Preview and download your schedule wallpaper"
+            >
+              <ImageDown aria-hidden="true" className="size-4" />
+              <span className="hidden md:inline">Preview</span>
+            </button>
+          ) : null}
           <button type="button" className="primary-button hidden md:inline-flex" onClick={() => onAdd()}>
             <Plus aria-hidden="true" className="size-4" />
             Add class
@@ -109,7 +139,56 @@ export function ScheduleView({
           <p className="text-center text-xs text-muted sm:hidden">Swipe sideways to see the whole week.</p>
         </>
       )}
+
+      {entries.length > 0 ? <NextStepCard classCount={entries.length} onNext={onNext} /> : null}
+      <SupportCard onSupport={onSupport} />
     </div>
+  );
+}
+
+const flowSteps = ["Add classes", "Choose a design", "Download"];
+
+/** Moves students from building their schedule straight into the wallpaper maker. */
+function NextStepCard({ classCount, onNext }: { classCount: number; onNext: () => void }) {
+  return (
+    <section className="neo-card overflow-hidden" aria-label="Next step">
+      <ol className="flex border-b border-border text-[11px] font-semibold sm:text-xs">
+        {flowSteps.map((step, index) => (
+          <li
+            key={step}
+            className={`flex flex-1 items-center justify-center gap-1.5 px-2 py-2.5 text-center ${
+              index === 0 ? "text-primary" : index === 1 ? "bg-primary/10 text-foreground" : "text-muted"
+            }`}
+          >
+            <span
+              className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] ${
+                index === 0
+                  ? "bg-primary-fill text-white"
+                  : index === 1
+                    ? "border border-primary text-primary"
+                    : "border border-border"
+              }`}
+            >
+              {index === 0 ? <Check aria-hidden="true" className="size-3" /> : index + 1}
+            </span>
+            <span className="truncate">{step}</span>
+          </li>
+        ))}
+      </ol>
+      <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Done adding classes?</h2>
+          <p className="mt-0.5 text-sm leading-6 text-muted">
+            You have {classCount} class{classCount === 1 ? "" : "es"}. Next, pick a design for your
+            phone, tablet or laptop and download your wallpaper.
+          </p>
+        </div>
+        <button type="button" className="primary-button shrink-0" onClick={onNext}>
+          Next: Choose a design
+          <ArrowRight aria-hidden="true" className="size-4" />
+        </button>
+      </div>
+    </section>
   );
 }
 

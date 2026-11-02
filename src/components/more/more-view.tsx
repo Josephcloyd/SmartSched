@@ -14,6 +14,7 @@ import {
   Palmtree,
   Plus,
   Share2,
+  ShieldCheck,
   Smartphone,
   Trash2,
   Upload,
@@ -29,6 +30,7 @@ import { popularCountries } from "@/lib/holidays";
 import { uid } from "@/lib/utils";
 import { Field, Panel, ToggleControl } from "@/components/ui/form-controls";
 import { SchoolPalettePicker } from "@/components/wallpaper/wallpaper-modal";
+import { privacyPoints } from "@/components/brand/privacy-notice";
 
 function formatShortDate(dateKey: string) {
   const [year, month, day] = dateKey.split("-").map(Number);
@@ -204,6 +206,21 @@ export function MoreView({
             onSelectCountry={onSelectCountry}
             onMessage={onMessage}
           />
+
+          <Panel
+            title="Privacy & security"
+            description="Nothing you enter is saved on our servers."
+            icon={<ShieldCheck aria-hidden="true" className="size-5" />}
+          >
+            <ul className="grid gap-2.5">
+              {privacyPoints.map((point) => (
+                <li key={point} className="flex gap-2.5 text-sm leading-6 text-muted">
+                  <Check aria-hidden="true" className="mt-1 size-4 shrink-0 text-primary" />
+                  <span>{point}</span>
+                </li>
+              ))}
+            </ul>
+          </Panel>
 
           <Panel
             title="Backup & transfer"

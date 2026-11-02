@@ -80,7 +80,7 @@ export function TodayView({
       <div className="grid gap-5">
         <Greeting title="Welcome to SmartSched" subtitle={dateLabel} />
         <section className="neo-card overflow-hidden">
-          <div className="bg-gradient-to-br from-primary-fill to-primary-strong px-5 py-6 text-white sm:px-6">
+          <div className="bg-gradient-to-br from-[var(--brand-green)] to-[var(--brand-green-strong)] px-5 py-6 text-white sm:px-6">
             <p className="text-sm font-semibold text-white/80">Get set up in 3 quick steps</p>
             <h2 className="mt-1 text-xl font-bold sm:text-2xl">Your whole class week, in one place.</h2>
           </div>
@@ -266,7 +266,7 @@ function HeroCard({
   nextSchoolDay: ReturnType<typeof findNextSchoolDay>;
 }) {
   const shell =
-    "relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary-fill to-primary-strong px-5 py-5 text-white shadow-[var(--shadow-md)] sm:px-6 sm:py-6";
+    "relative overflow-hidden rounded-3xl bg-gradient-to-br from-[var(--brand-green)] to-[var(--brand-green-strong)] px-5 py-5 text-white shadow-[var(--shadow-md)] sm:px-6 sm:py-6";
 
   if (current) {
     const start = timeToMinutes(current.start);

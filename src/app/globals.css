@@ -4,19 +4,29 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  /* School brand colors are injected at runtime via --brand / --brand-strong. */
-  --brand: #256f53;
-  --brand-strong: #164734;
-  --background: #f3f5f7;
-  --foreground: #142019;
-  --muted: #5b6962;
+  /* GetLaunchPH brand, matching ResumeFlow's tokens. */
+  --brand-green: #2f5446;
+  --brand-green-strong: #26443a;
+  --brand-sage: #578571;
+  /* Official GetLaunchPH logo: hexagon fill + "circuit tree" ink. */
+  --logo-hex: #2f5446;
+  --logo-ink: #f6f5f0;
+  --donate-from: #3e6b5a;
+  --donate-to: #26443a;
+  --gold: #7a5a14;
+  --gold-bg: #fbf3df;
+  --gold-border: #e7d2a0;
+
+  --background: #f4f4f1;
+  --foreground: #171a18;
+  --muted: #5e6661;
   --surface: #ffffff;
-  --surface-2: #f2f5f6;
-  --border: #e1e6e9;
-  --primary: var(--brand);
-  --primary-strong: var(--brand-strong);
-  --primary-fill: var(--brand);
-  --accent: #b55d2c;
+  --surface-2: #f0f0ec;
+  --border: #e2e2dc;
+  --primary: var(--brand-green);
+  --primary-strong: var(--brand-green-strong);
+  --primary-fill: var(--brand-green);
+  --accent: #b88a2e;
   --danger: #c0352b;
   --shadow-sm: 0 1px 2px rgb(16 24 20 / 0.05);
   --shadow-md: 0 1px 2px rgb(16 24 20 / 0.04), 0 10px 28px -14px rgb(16 24 20 / 0.18);
@@ -26,17 +36,27 @@
 }
 
 .dark {
-  --background: #0c1210;
-  --foreground: #edf2ee;
-  --muted: #98a79f;
-  --surface: #141c18;
-  --surface-2: #1a2420;
-  --border: #26322c;
-  /* Brand colors are often deep (maroon, navy) — lift them so text and icons stay legible. */
-  --primary: color-mix(in srgb, var(--brand) 55%, #ffffff);
-  --primary-strong: color-mix(in srgb, var(--brand) 70%, #ffffff);
-  --primary-fill: color-mix(in srgb, var(--brand) 82%, #ffffff);
-  --accent: #ff9b65;
+  /* Matches the GetLaunchPH tools' near-black UI. */
+  --brand-green: #4a8a70;
+  --brand-green-strong: #3f7a63;
+  --brand-sage: #a8c3b4;
+  --logo-hex: #f6f5f0;
+  --logo-ink: #334d44;
+  --gold: #e8d39a;
+  --gold-bg: #262117;
+  --gold-border: #463c26;
+
+  --background: #141414;
+  --foreground: #f1f1ec;
+  --muted: #a1a5a2;
+  --surface: #1b1b1b;
+  --surface-2: #232323;
+  --border: #2e2e2e;
+  /* Green fills stay brand-exact; green text/icons are lifted for contrast on near-black. */
+  --primary: #86bba4;
+  --primary-strong: #a8c3b4;
+  --primary-fill: var(--brand-green);
+  --accent: #e9cf96;
   --danger: #ff7b72;
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
   --shadow-md: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 30px -16px rgb(0 0 0 / 0.6);
@@ -54,6 +74,10 @@
   --color-primary: var(--primary);
   --color-primary-strong: var(--primary-strong);
   --color-primary-fill: var(--primary-fill);
+  --color-brand-sage: var(--brand-sage);
+  --color-gold: var(--gold);
+  --color-gold-bg: var(--gold-bg);
+  --color-gold-border: var(--gold-border);
   --color-accent: var(--accent);
   --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
@@ -369,6 +393,19 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes splash-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+@utility splash-progress {
+  animation: splash-progress 1.1s var(--ease-out) infinite;
 }
 
 @utility animate-fade-up {

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { PwaRegister } from "@/components/pwa-register";
+import { brand } from "@/lib/brand";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,18 +15,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SmartSched",
-  description: "Local-first school schedule planner, wallpaper maker, and reminder exporter.",
-  applicationName: "SmartSched",
+  title: `${brand.appName} by ${brand.company}`,
+  description: `${brand.tagline}. Free, no sign-up, and your schedule never leaves your device.`,
+  applicationName: brand.appName,
   appleWebApp: {
     capable: true,
-    title: "SmartSched",
-    statusBarStyle: "default",
+    title: brand.appName,
+    statusBarStyle: "black-translucent",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#f3f5f7",
+  themeColor: "#141414",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -41,7 +42,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // Dark is the GetLaunchPH default; the app removes it if the student picked light.
+      className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
+      suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
         {children}

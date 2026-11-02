@@ -21,7 +21,14 @@ import {
   type ScheduleSettings,
   type ScheduleType,
   type ScheduleViewMode,
+  type WallpaperDevice,
 } from "@/lib/types";
+import {
+  defaultSizeForDevice,
+  detectDeviceType,
+  deviceForSizeId,
+  isWallpaperDevice,
+} from "@/lib/wallpaper-devices";
 import {
   defaultHolidayCalendar,
   detectHolidayLocation,
@@ -57,10 +64,16 @@ import { ScheduleView } from "@/components/schedule/schedule-view";
 import { TodayView } from "@/components/today/today-view";
 import { MoreView } from "@/components/more/more-view";
 import { FeedbackWidget } from "@/components/feedback-widget";
+import { BrandLockup, SplashScreen } from "@/components/brand/brand";
+import { SupportButton, SupportSheet } from "@/components/brand/support";
+import { PrivacyBanner } from "@/components/brand/privacy-notice";
+import { brand } from "@/lib/brand";
 
 const storageKey = "smartsched.local.schedule.v1";
 const notifiedKey = "smartsched.local.notified.v1";
 const themeKey = "smartsched.local.theme.v1";
+const privacyNoteKey = "smartsched.local.privacy-note-dismissed.v1";
+const SPLASH_MIN_MS = 900;
 
 const defaultSettings: ScheduleSettings = {
   schoolPaletteId: "university-of-cebu",
@@ -145,10 +158,21 @@ function readStoredSchedule(): StoredSchedule | null {
 }
 
 function normalizeSettings(settings?: Partial<ScheduleSettings>): ScheduleSettings {
-  return {
+  const merged = {
     ...defaultSettings,
     ...settings,
     wallpaperClockSafetyZone: settings?.wallpaperClockSafetyZone ?? true,
+  };
+  return {
+    ...merged,
+    wallpaperDevice: isWallpaperDevice(merged.wallpaperDevice)
+      ? merged.wallpaperDevice
+      : deviceForSizeId(
+          merged.wallpaperSizeId,
+          detectDeviceType(),
+          merged.wallpaperCustomWidth,
+          merged.wallpaperCustomHeight,
+        ),
   };
 }
 
@@ -197,17 +221,29 @@ function detectDeviceWallpaperSize() {
 function getWallpaperSizePreset(
   settings: ScheduleSettings,
   detectedDeviceSize: { width: number; height: number },
+  detectedDevice: WallpaperDevice,
 ): SelectedWallpaperSize {
-  if (settings.wallpaperSizeId === "device-auto") {
+  const device = settings.wallpaperDevice ?? detectedDevice;
+  // "This device" only makes sense when the wallpaper is for the kind of screen in hand.
+  const sizeId =
+    settings.wallpaperSizeId === "device-auto" && device !== detectedDevice
+      ? defaultSizeForDevice[device]
+      : settings.wallpaperSizeId;
+
+  if (sizeId === "device-auto") {
+    // Phones and tablets get tall wallpapers even if held sideways right now.
+    const long = Math.max(detectedDeviceSize.width, detectedDeviceSize.height);
+    const short = Math.min(detectedDeviceSize.width, detectedDeviceSize.height);
+    const portrait = device !== "Laptop";
     return {
       id: "device-auto",
       group: "Device",
       label: "This device (automatic)",
-      width: detectedDeviceSize.width,
-      height: detectedDeviceSize.height,
+      width: portrait ? short : long,
+      height: portrait ? long : short,
     };
   }
-  if (settings.wallpaperSizeId === "custom") {
+  if (sizeId === "custom") {
     return {
       id: "custom",
       group: "Custom",
@@ -216,7 +252,7 @@ function getWallpaperSizePreset(
       height: settings.wallpaperCustomHeight,
     };
   }
-  const preset = wallpaperSizePresets.find((item) => item.id === settings.wallpaperSizeId);
+  const preset = wallpaperSizePresets.find((item) => item.id === sizeId);
   return preset ?? wallpaperSizePresets[2];
 }
 
@@ -239,16 +275,21 @@ export function ScheduleApp() {
   const [toast, setToast] = useState<Toast | null>(null);
   const [notificationState, setNotificationState] =
     useState<NotificationPermission | "unsupported">("unsupported");
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [storageReady, setStorageReady] = useState(false);
   const [now, setNow] = useState<Date | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
+  const [privacyNoteDismissed, setPrivacyNoteDismissed] = useState(true);
+  // Keep the branded splash up briefly even on fast devices so it doesn't just flicker.
+  const [splashDone, setSplashDone] = useState(false);
   const [canShare, setCanShare] = useState(false);
   const [detectedDeviceSize, setDetectedDeviceSize] = useState({
     width: 1080,
     height: 1920,
   });
+  const [detectedDevice, setDetectedDevice] = useState<WallpaperDevice>("Phone");
 
   const holidayRefreshAttemptedRef = useRef(false);
 
@@ -266,11 +307,16 @@ export function ScheduleApp() {
         setHolidayCalendar(storedSchedule.holidayCalendar);
       }
 
+      try {
+        setPrivacyNoteDismissed(localStorage.getItem(privacyNoteKey) === "1");
+      } catch {
+        setPrivacyNoteDismissed(false);
+      }
+
+      // Dark by default to match the GetLaunchPH tools; light only if the student chose it.
       const storedTheme = window.localStorage.getItem(themeKey);
       if (storedTheme === "dark" || storedTheme === "light") {
         setTheme(storedTheme);
-      } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-        setTheme("dark");
       }
 
       const current = new Date();
@@ -278,10 +324,16 @@ export function ScheduleApp() {
       setSelectedDay(dayNameForDate(current));
       setNotificationState(getNotificationPermission());
       setDetectedDeviceSize(detectDeviceWallpaperSize());
+      setDetectedDevice(detectDeviceType());
       setCanShare(typeof navigator !== "undefined" && typeof navigator.share === "function");
       setStorageReady(true);
     }, 0);
 
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSplashDone(true), SPLASH_MIN_MS);
     return () => window.clearTimeout(timer);
   }, []);
 
@@ -295,6 +347,7 @@ export function ScheduleApp() {
   useEffect(() => {
     function updateDetectedSize() {
       setDetectedDeviceSize(detectDeviceWallpaperSize());
+      setDetectedDevice(detectDeviceType());
     }
     window.addEventListener("resize", updateDetectedSize);
     window.addEventListener("orientationchange", updateDetectedSize);
@@ -321,7 +374,7 @@ export function ScheduleApp() {
     // Match the mobile browser / installed-app status bar to the page background.
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute("content", theme === "dark" ? "#0c1210" : "#f3f5f7");
+      ?.setAttribute("content", theme === "dark" ? "#141414" : "#f4f4f1");
     window.localStorage.setItem(themeKey, theme);
   }, [theme, storageReady]);
 
@@ -369,8 +422,8 @@ export function ScheduleApp() {
 
   const sortedEntries = useMemo(() => sortEntries(entries), [entries]);
   const selectedWallpaperSize = useMemo(
-    () => getWallpaperSizePreset(settings, detectedDeviceSize),
-    [detectedDeviceSize, settings],
+    () => getWallpaperSizePreset(settings, detectedDeviceSize, detectedDevice),
+    [detectedDevice, detectedDeviceSize, settings],
   );
   const nextHolidays = useMemo(
     () => upcomingHolidays(holidayCalendar),
@@ -383,16 +436,6 @@ export function ScheduleApp() {
     () => (now ? holidayForDate(holidayCalendar, now) : undefined),
     [holidayCalendar, now],
   );
-  const schoolPalette = getSchoolPalette(settings.schoolPaletteId);
-
-  // Set brand colors on <html>: --primary is derived there (lightened in dark mode),
-  // so overriding --brand on a child element would not reach it.
-  useEffect(() => {
-    const root = document.documentElement;
-    root.style.setProperty("--brand", schoolPalette.uiPrimary);
-    root.style.setProperty("--brand-strong", schoolPalette.uiPrimaryStrong);
-    root.style.setProperty("--accent", schoolPalette.uiAccent);
-  }, [schoolPalette.uiPrimary, schoolPalette.uiPrimaryStrong, schoolPalette.uiAccent]);
 
   function setMessage(text: string, action?: Toast["action"]) {
     setToast({ id: Date.now(), text, action });
@@ -447,7 +490,14 @@ export function ScheduleApp() {
         : editingId
           ? `Saved changes to ${saved.title}.`
           : `Added ${saved.title}.`,
+      // After adding a class, offer the next step: designing the wallpaper.
+      editingId ? undefined : { label: "Design wallpaper", onClick: openWallpaperStep },
     );
+  }
+
+  function openWallpaperStep() {
+    setToast(null);
+    setPreviewOpen(true);
   }
 
   function duplicateEntry(entry: ScheduleEntry) {
@@ -633,7 +683,15 @@ export function ScheduleApp() {
       `smartsched-wallpaper-${selectedWallpaperSize.id}-${selectedWallpaperSize.width}x${selectedWallpaperSize.height}-${layoutSlug}.${extension}`,
       blob,
     );
-    setMessage(`Wallpaper downloaded (${sizeLabel} ${format}).`);
+    // Last step of the flow: reminders, so students don't miss class.
+    setMessage(`Wallpaper downloaded (${sizeLabel} ${format}).`, {
+      label: "Set reminders",
+      onClick: () => {
+        setToast(null);
+        setPreviewOpen(false);
+        goToTab("more", "reminders");
+      },
+    });
   }
 
   async function shareWallpaper() {
@@ -673,21 +731,18 @@ export function ScheduleApp() {
 
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-background text-foreground">
+      {!now || !splashDone ? <SplashScreen /> : null}
+
       {/* App bar */}
       <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 pt-[env(safe-area-inset-top)] backdrop-blur-lg">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 md:h-16">
           <button
             type="button"
-            className="flex min-w-0 items-center gap-2.5 text-left"
+            className="min-w-0 text-left"
             onClick={() => goToTab("today")}
+            aria-label={`${brand.appName} by ${brand.company}, go to Today`}
           >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary-fill text-white shadow-[var(--shadow-sm)]">
-              <CalendarDays aria-hidden="true" className="size-5" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-base font-bold leading-tight text-foreground">SmartSched</span>
-              <span className="block truncate text-xs text-muted">{schoolPalette.name}</span>
-            </span>
+            <BrandLockup />
           </button>
 
           <nav className="hidden items-center gap-1 rounded-2xl border border-border bg-surface p-1 md:flex" aria-label="Main">
@@ -709,42 +764,53 @@ export function ScheduleApp() {
             ))}
           </nav>
 
-          <button
-            type="button"
-            className="icon-button border-border bg-surface"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            {theme === "dark" ? (
-              <Sun aria-hidden="true" className="size-5" />
-            ) : (
-              <MoonStar aria-hidden="true" className="size-5" />
-            )}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {theme === "dark" ? (
+                <Sun aria-hidden="true" className="size-5" />
+              ) : (
+                <MoonStar aria-hidden="true" className="size-5" />
+              )}
+            </button>
+            <SupportButton onClick={() => setSupportOpen(true)} />
+          </div>
         </div>
       </header>
 
       <main className="mx-auto w-full max-w-6xl px-4 pb-36 pt-5 sm:px-6 sm:pt-8 md:pb-16">
-        {!now ? (
-          <div className="grid gap-4" aria-busy="true">
-            <div className="h-8 w-48 animate-pulse rounded-lg bg-surface-2" />
-            <div className="h-40 animate-pulse rounded-3xl bg-surface-2" />
-            <div className="h-28 animate-pulse rounded-2xl bg-surface-2" />
-          </div>
-        ) : (
+        {!now ? null : (
           <div key={tab} className="animate-fade-up">
             {tab === "today" ? (
-              <TodayView
-                entries={entries}
-                now={now}
-                todayName={todayName}
-                holidayToday={holidayToday}
-                onEditClass={openEditForm}
-                onAddClass={() => openAddForm(todayName)}
-                onOpenSchedule={() => goToTab("schedule")}
-                onOpenWallpaper={() => setPreviewOpen(true)}
-                onOpenReminders={() => goToTab("more", "reminders")}
-              />
+              <div className="grid gap-5">
+                {!privacyNoteDismissed ? (
+                  <PrivacyBanner
+                    onDismiss={() => {
+                      setPrivacyNoteDismissed(true);
+                      try {
+                        localStorage.setItem(privacyNoteKey, "1");
+                      } catch {
+                        // Can't remember the dismissal; the note just shows again next visit.
+                      }
+                    }}
+                  />
+                ) : null}
+                <TodayView
+                  entries={entries}
+                  now={now}
+                  todayName={todayName}
+                  holidayToday={holidayToday}
+                  onEditClass={openEditForm}
+                  onAddClass={() => openAddForm(todayName)}
+                  onOpenSchedule={() => goToTab("schedule")}
+                  onOpenWallpaper={() => setPreviewOpen(true)}
+                  onOpenReminders={() => goToTab("more", "reminders")}
+                />
+              </div>
             ) : tab === "schedule" ? (
               <ScheduleView
                 entries={entries}
@@ -758,6 +824,9 @@ export function ScheduleApp() {
                 onEdit={openEditForm}
                 onDuplicate={duplicateEntry}
                 onDelete={deleteEntry}
+                onPreview={() => setPreviewOpen(true)}
+                onNext={openWallpaperStep}
+                onSupport={() => setSupportOpen(true)}
               />
             ) : (
               <MoreView
@@ -887,11 +956,14 @@ export function ScheduleApp() {
           setSettings={setSettings}
           entries={sortedEntries}
           sizePreset={selectedWallpaperSize}
+          detectedDevice={detectedDevice}
           onClose={() => setPreviewOpen(false)}
           onDownload={downloadWallpaper}
           onShare={shareWallpaper}
         />
       ) : null}
+
+      {supportOpen ? <SupportSheet onClose={() => setSupportOpen(false)} /> : null}
 
       {feedbackOpen ? (
         <FeedbackWidget
@@ -908,6 +980,45 @@ export function ScheduleApp() {
 }
 
 // ICS Calendar & Notification Utilities
+function readNotifiedKeys(): Set<string> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(notifiedKey) || "[]");
+    return new Set(
+      Array.isArray(parsed) ? parsed.filter((key): key is string => typeof key === "string") : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function saveNotifiedKeys(keys: Set<string>) {
+  try {
+    localStorage.setItem(notifiedKey, JSON.stringify([...keys].slice(-100)));
+  } catch {
+    // Storage full or blocked: worst case a reminder may show twice.
+  }
+}
+
+/**
+ * Shows a reminder without ever throwing. Android Chrome rejects `new Notification()`
+ * ("Illegal constructor") and only allows notifications through the service worker,
+ * so prefer `registration.showNotification` and fall back to the constructor
+ * (desktop browsers, or dev mode where no service worker is registered).
+ */
+async function showReminder(title: string, options: NotificationOptions) {
+  try {
+    const registration =
+      "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
+    if (registration) {
+      await registration.showNotification(title, options);
+      return;
+    }
+    new Notification(title, options);
+  } catch {
+    // Notifications unsupported in this context; the .ics calendar alarms remain the backup.
+  }
+}
+
 function checkDueNotifications(
   entries: ScheduleEntry[],
   holidayCalendar: HolidayCalendar,
@@ -922,9 +1033,8 @@ function checkDueNotifications(
   }
 
   const today = dayNameForDate(now);
-  const notified = new Set(
-    JSON.parse(localStorage.getItem(notifiedKey) || "[]") as string[],
-  );
+  const notified = readNotifiedKeys();
+  let changed = false;
 
   entries
     .filter((entry) => entry.days.includes(today))
@@ -936,15 +1046,20 @@ function checkDueNotifications(
       const key = `${now.toDateString()}-${entry.id}-${entry.reminderMinutes}`;
 
       if (diff <= 30000 && diff >= -60000 && !notified.has(key)) {
-        new Notification(`${entry.title} starts at ${formatTime(entry.start)}`, {
+        // Record first so a failed display can't make the reminder repeat every 30s.
+        notified.add(key);
+        changed = true;
+        void showReminder(`${entry.title} starts at ${formatTime(entry.start)}`, {
           body: [entry.code, entry.room].filter(Boolean).join(" - "),
           icon: "/icon.svg",
+          tag: key,
         });
-        notified.add(key);
       }
     });
 
-  localStorage.setItem(notifiedKey, JSON.stringify([...notified].slice(-100)));
+  if (changed) {
+    saveNotifiedKeys(notified);
+  }
 }
 
 function buildIcs(

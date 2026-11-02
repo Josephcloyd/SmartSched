@@ -228,9 +228,9 @@ export function getWallpaperLayoutProfile(
 ): WallpaperLayoutProfile {
   const profiles: Record<WallpaperLayoutMode, WallpaperLayoutProfile> = {
     Compact: {
-      spacingScale: 0.78,
-      paddingScale: 0.84,
-      fontScale: 0.92,
+      spacingScale: 0.7,
+      paddingScale: 0.8,
+      fontScale: 0.94,
     },
     Balanced: {
       spacingScale: 1,
@@ -238,59 +238,13 @@ export function getWallpaperLayoutProfile(
       fontScale: 1,
     },
     Spacious: {
-      spacingScale: 1.24,
+      spacingScale: 1.3,
       paddingScale: 1.18,
-      fontScale: 1.1,
+      fontScale: 1.06,
     },
   };
 
   return profiles[layoutMode];
-}
-
-export function getAutoFitScale(
-  width: number,
-  height: number,
-  enabled: boolean,
-  isDesktop: boolean,
-) {
-  if (!enabled) {
-    return 1;
-  }
-
-  const shortSide = Math.min(width, height);
-  const longSide = Math.max(width, height);
-  const base = isDesktop ? shortSide / 1080 : shortSide / 1080;
-  const tallBonus = !isDesktop && longSide / shortSide > 1.9 ? 1.04 : 1;
-
-  return clampNumber(base * 100 * tallBonus, 78, 112, 100) / 100;
-}
-
-export function allocateRowHeights(
-  totalHeight: number,
-  gap: number,
-  demands: number[],
-  minimumRowHeight: number,
-) {
-  if (demands.length === 0) {
-    return [];
-  }
-
-  const usableHeight = Math.max(
-    demands.length,
-    totalHeight - gap * Math.max(0, demands.length - 1),
-  );
-  const baseHeight = Math.min(minimumRowHeight, usableHeight / demands.length);
-  const remainingHeight = Math.max(0, usableHeight - baseHeight * demands.length);
-  const extraDemands = demands.map((demand) => Math.max(0, demand - 1));
-  const totalExtraDemand = extraDemands.reduce((sum, demand) => sum + demand, 0);
-
-  if (totalExtraDemand === 0) {
-    return demands.map(() => usableHeight / demands.length);
-  }
-
-  return extraDemands.map(
-    (demand) => baseHeight + remainingHeight * (demand / totalExtraDemand),
-  );
 }
 
 export function roundedRect(
@@ -304,133 +258,408 @@ export function roundedRect(
 ) {
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.roundRect(x, y, width, height, radius);
+  ctx.roundRect(x, y, width, height, Math.max(0, Math.min(radius, height / 2, width / 2)));
   ctx.fill();
 }
 
-export function drawFittedText(
+/*
+ * Layout engine
+ *
+ * Everything is sized in "units": roughly one CSS pixel on the target screen
+ * (a 1080px-wide phone image has 3 canvas px per unit). Text sizes are therefore
+ * real, readable sizes instead of shrinking with the number of classes.
+ *
+ * For each wallpaper the engine tries a few item styles (full cards, compact
+ * one-line rows) and column counts, works out how far each must be scaled to fit,
+ * and keeps the one with the largest text. Long titles are truncated with "…"
+ * rather than shrunk.
+ */
+
+const FONT_STACK = '"Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
+const font = (weight: number, size: number) => `${weight} ${Math.round(size)}px ${FONT_STACK}`;
+
+type ItemStyle = "card" | "row";
+
+type ItemSpec = {
+  height: number;
+  minWidth: number;
+  maxWidth: number;
+  gap: number;
+  timeWidth: number;
+  title: number;
+  detail: number;
+  time: number;
+};
+
+// Base sizes in units, before the text-size setting and scale-to-fit are applied.
+const itemSpecs: Record<ItemStyle, ItemSpec> = {
+  card: { height: 50, minWidth: 210, maxWidth: 440, gap: 7, timeWidth: 70, title: 15, detail: 11.5, time: 12.5 },
+  row: { height: 27, minWidth: 200, maxWidth: 440, gap: 4, timeWidth: 62, title: 13.5, detail: 11.5, time: 12 },
+};
+
+// Rows are less informative than cards, so they need clearly bigger text to win.
+const ROW_STYLE_PENALTY = 0.8;
+// Phones stay single-column (full titles, easy to scan) unless that would push
+// text below this fraction of its normal size.
+const PHONE_SINGLE_COLUMN_MIN_SCALE = 0.78;
+const MAX_FIT_SCALE = 1.15;
+
+type LayoutMetrics = {
+  textScale: number;
+  dayScale: number;
+  spacing: number;
+  padding: number;
+};
+
+type DayGroup = {
+  day: DayName;
+  entries: ScheduleEntry[];
+};
+
+type LayoutChoice = {
+  style: ItemStyle;
+  columns: number;
+  scale: number;
+};
+
+function getLayoutMetrics(settings: ScheduleSettings): LayoutMetrics {
+  const profile = getWallpaperLayoutProfile(settings.wallpaperLayoutMode);
+  return {
+    textScale:
+      clampNumber(settings.wallpaperCardTextSize / 28, 0.65, 1.5, 1) * profile.fontScale,
+    dayScale:
+      clampNumber(settings.wallpaperDayLabelSize / 52, 0.6, 1.5, 1) * profile.fontScale,
+    spacing: profile.spacingScale,
+    padding: profile.paddingScale,
+  };
+}
+
+function itemHeight(style: ItemStyle, metrics: LayoutMetrics) {
+  return itemSpecs[style].height * metrics.textScale;
+}
+
+function itemGap(style: ItemStyle, metrics: LayoutMetrics) {
+  return itemSpecs[style].gap * metrics.spacing;
+}
+
+function gridHeight(count: number, columns: number, style: ItemStyle, metrics: LayoutMetrics) {
+  const rows = Math.ceil(count / columns);
+  return rows * itemHeight(style, metrics) + Math.max(0, rows - 1) * itemGap(style, metrics);
+}
+
+function gridMinWidth(columns: number, style: ItemStyle, metrics: LayoutMetrics) {
+  return (
+    columns * itemSpecs[style].minWidth * metrics.textScale +
+    (columns - 1) * itemGap(style, metrics)
+  );
+}
+
+// Phone layout: each day is a panel with the day name on top and classes stacked below.
+function phoneGeometry(metrics: LayoutMetrics) {
+  return {
+    groupPad: 10 * metrics.padding,
+    headerHeight: 22 * metrics.dayScale,
+    headerGap: 7 * metrics.spacing,
+    dayGap: 9 * metrics.spacing,
+  };
+}
+
+function measurePhone(groups: DayGroup[], style: ItemStyle, columns: number, metrics: LayoutMetrics) {
+  const g = phoneGeometry(metrics);
+  const height =
+    groups.reduce((sum, group) => {
+      const items =
+        group.entries.length > 0
+          ? g.headerGap + gridHeight(group.entries.length, columns, style, metrics)
+          : 0;
+      return sum + g.groupPad * 2 + g.headerHeight + items;
+    }, 0) +
+    Math.max(0, groups.length - 1) * g.dayGap;
+  const width = g.groupPad * 2 + gridMinWidth(columns, style, metrics);
+  return { height, width };
+}
+
+// Desktop layout: each day is a row with the day name on the left and a class grid on the right.
+function desktopGeometry(metrics: LayoutMetrics) {
+  return {
+    dayColumn: 84 * metrics.dayScale,
+    rowPad: 10 * metrics.padding,
+    rowMinHeight: 46 * metrics.dayScale,
+    dayGap: 8 * metrics.spacing,
+  };
+}
+
+function desktopRowHeight(count: number, style: ItemStyle, columns: number, metrics: LayoutMetrics) {
+  const g = desktopGeometry(metrics);
+  if (count === 0) return g.rowMinHeight;
+  return Math.max(g.rowMinHeight, g.rowPad * 2 + gridHeight(count, columns, style, metrics));
+}
+
+function measureDesktop(groups: DayGroup[], style: ItemStyle, columns: number, metrics: LayoutMetrics) {
+  const g = desktopGeometry(metrics);
+  const height =
+    groups.reduce(
+      (sum, group) => sum + desktopRowHeight(group.entries.length, style, columns, metrics),
+      0,
+    ) +
+    Math.max(0, groups.length - 1) * g.dayGap;
+  const width = g.dayColumn + g.rowPad * 2 + gridMinWidth(columns, style, metrics);
+  return { height, width };
+}
+
+function chooseLayout(
+  groups: DayGroup[],
+  isPhone: boolean,
+  availableWidth: number,
+  availableHeight: number,
+  unit: number,
+  metrics: LayoutMetrics,
+  autoFit: boolean,
+): LayoutChoice {
+  const busiestDay = Math.max(1, ...groups.map((group) => group.entries.length));
+  const maxColumns = isPhone ? Math.min(2, busiestDay) : Math.min(6, busiestDay);
+  const candidates: (LayoutChoice & { score: number })[] = [];
+
+  for (const style of ["card", "row"] as const) {
+    for (let columns = 1; columns <= maxColumns; columns += 1) {
+      const size = isPhone
+        ? measurePhone(groups, style, columns, metrics)
+        : measureDesktop(groups, style, columns, metrics);
+      const widthFit = availableWidth / (size.width * unit);
+      const heightFit = autoFit ? availableHeight / (size.height * unit) : Infinity;
+      const scale = Math.min(MAX_FIT_SCALE, widthFit, heightFit);
+      const score =
+        scale *
+        (style === "row" ? ROW_STYLE_PENALTY : 1) *
+        // On wide screens, extra columns only help if they buy real text size.
+        (isPhone ? 1 : 1 - (columns - 1) * 0.015);
+      candidates.push({ style, columns, scale, score });
+    }
+  }
+
+  const pickBest = (list: typeof candidates) =>
+    list.reduce((best, candidate) => (candidate.score > best.score ? candidate : best));
+
+  if (isPhone) {
+    const singleColumn = pickBest(candidates.filter((candidate) => candidate.columns === 1));
+    if (singleColumn.scale >= PHONE_SINGLE_COLUMN_MIN_SCALE) {
+      return singleColumn;
+    }
+  }
+  return pickBest(candidates);
+}
+
+function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
+  if (maxWidth <= 0) return "";
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (ctx.measureText(`${text.slice(0, mid).trimEnd()}…`).width <= maxWidth) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return low > 0 ? `${text.slice(0, low).trimEnd()}…` : "";
+}
+
+function drawText(
   ctx: CanvasRenderingContext2D,
   text: string,
   x: number,
   y: number,
   maxWidth: number,
-  fontSize: number,
-  minSize: number,
+  weight: number,
+  size: number,
+  color: string,
+  align: CanvasTextAlign = "left",
 ) {
-  let size = fontSize;
-  while (ctx.measureText(text).width > maxWidth && size > minSize) {
-    size -= 1;
-    ctx.font = ctx.font.replace(/\d+px/, `${size}px`);
-  }
-  ctx.fillText(text || "-", x, y);
+  ctx.font = font(weight, size);
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
+  ctx.fillText(fitText(ctx, text, maxWidth), x, y);
+  ctx.textAlign = "left";
 }
 
-export function drawReadableScheduleCard(
+function entryDetail(entry: ScheduleEntry) {
+  return [entry.room, entry.code].filter(Boolean).join(" · ");
+}
+
+function withRoundedClip(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+  draw: () => void,
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x, y, width, height, Math.min(radius, height / 2));
+  ctx.clip();
+  draw();
+  ctx.restore();
+}
+
+/** Full card: accent edge, time block (start/end), title, and room/code line. */
+function drawCardItem(
   ctx: CanvasRenderingContext2D,
   entry: ScheduleEntry,
   x: number,
   y: number,
   width: number,
   height: number,
-  scale = 1,
-  colors: WallpaperCardColors = {
-    card: "#222934",
-    time: "#3b4654",
-    title: "#fbfdff",
-    detail: "#c6d1dc",
-  },
-  cardTextSize = 28,
-  profile: WallpaperLayoutProfile = getWallpaperLayoutProfile("Balanced"),
+  t: number,
+  palette: WallpaperPalette,
 ) {
+  const spec = itemSpecs.card;
   const accent = getEntryAccentColor(entry);
-  const padScale = scale * profile.paddingScale;
-  const fontScale = scale * profile.fontScale;
-  const pad = (value: number) => value * padScale;
-  const fs = (value: number) => value * fontScale;
-  const timeWidth = Math.max(pad(116), width * 0.25);
-  const contentX = x + timeWidth + pad(22);
-  const compactCard = height < pad(64);
-  const titleSize = Math.max(
-    7,
-    Math.min(fs(cardTextSize), height * (compactCard ? 0.42 : 0.3)),
-  );
-  const detailSize = Math.max(7, Math.min(fs(Math.round(cardTextSize * 0.58)), height * 0.2));
-  const timeSize = Math.max(7, Math.min(fs(Math.round(cardTextSize * 0.62)), height * 0.22));
-  const endTimeSize = Math.max(7, Math.min(fs(Math.round(cardTextSize * 0.48)), height * 0.18));
-  const verticalPad = Math.min(pad(7), Math.max(2, height * 0.12));
+  const edge = 4.5 * t;
 
-  ctx.shadowColor = "rgba(0, 0, 0, 0.22)";
-  ctx.shadowBlur = pad(10);
-  ctx.shadowOffsetY = pad(3);
-  roundedRect(ctx, x, y, width, height, Math.min(pad(16), height * 0.24), colors.card);
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
+  withRoundedClip(ctx, x, y, width, height, 10 * t, () => {
+    ctx.fillStyle = palette.card;
+    ctx.fillRect(x, y, width, height);
+    ctx.fillStyle = accent;
+    ctx.fillRect(x, y, edge, height);
+  });
 
-  ctx.fillStyle = accent;
-  ctx.fillRect(x, y, Math.max(4, pad(8)), height);
+  const timeX = x + edge + 6 * t;
+  const timeWidth = spec.timeWidth * t;
+  roundedRect(ctx, timeX, y + 6 * t, timeWidth, height - 12 * t, 7 * t, palette.time);
+  const midY = y + height / 2;
+  drawText(ctx, formatTime(entry.start), timeX + timeWidth / 2, midY - 0.5 * t, timeWidth - 8 * t, 700, spec.time * t, palette.soft, "center");
+  drawText(ctx, formatTime(entry.end), timeX + timeWidth / 2, midY + spec.time * t * 0.95, timeWidth - 8 * t, 600, (spec.time - 1.5) * t, palette.muted, "center");
 
-  roundedRect(
-    ctx,
-    x + pad(18),
-    y + verticalPad,
-    timeWidth - pad(30),
-    Math.max(1, height - verticalPad * 2),
-    Math.min(pad(12), height * 0.2),
-    colors.time,
-  );
-  ctx.fillStyle = colors.title;
-  ctx.font = `700 ${timeSize}px Arial`;
-  drawFittedText(
-    ctx,
-    formatTime(entry.start),
-    x + pad(30),
-    y + height / 2 + (compactCard ? timeSize * 0.34 : -endTimeSize * 0.25),
-    timeWidth - pad(54),
-    timeSize,
-    8,
-  );
-  if (!compactCard) {
-    ctx.fillStyle = colors.detail;
-    ctx.font = `700 ${endTimeSize}px Arial`;
-    drawFittedText(
-      ctx,
-      formatTime(entry.end),
-      x + pad(30),
-      y + height / 2 + endTimeSize * 1.25,
-      timeWidth - pad(54),
-      endTimeSize,
-      7,
-    );
-  }
-
-  ctx.fillStyle = colors.title;
-  ctx.font = `700 ${titleSize}px Arial`;
-  drawFittedText(
-    ctx,
-    entry.title.toUpperCase(),
-    contentX,
-    y + height / 2 + (compactCard ? titleSize * 0.34 : -detailSize * 0.35),
-    width - (contentX - x) - pad(18),
-    titleSize,
-    9,
-  );
-
-  if (!compactCard) {
-    ctx.fillStyle = colors.detail;
-    ctx.font = `700 ${detailSize}px Arial`;
-    drawFittedText(
-      ctx,
-      [entry.code, entry.room].filter(Boolean).join(" - ") || entry.type,
-      contentX,
-      y + height / 2 + detailSize * 1.05,
-      width - (contentX - x) - pad(18),
-      detailSize,
-      7,
-    );
-  }
+  const contentX = timeX + timeWidth + 10 * t;
+  const contentWidth = x + width - contentX - 10 * t;
+  const detail = entryDetail(entry) || entry.type;
+  drawText(ctx, entry.title, contentX, midY - 1 * t, contentWidth, 700, spec.title * t, palette.soft);
+  drawText(ctx, detail, contentX, midY + spec.detail * t + 2 * t, contentWidth, 500, spec.detail * t, palette.muted);
 }
 
-export function drawDesktopWallpaper(
+/** Compact one-line row for busy schedules: time · title · room. */
+function drawRowItem(
+  ctx: CanvasRenderingContext2D,
+  entry: ScheduleEntry,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  t: number,
+  palette: WallpaperPalette,
+) {
+  const spec = itemSpecs.row;
+  const accent = getEntryAccentColor(entry);
+  const edge = 4 * t;
+
+  withRoundedClip(ctx, x, y, width, height, 7 * t, () => {
+    ctx.fillStyle = palette.card;
+    ctx.fillRect(x, y, width, height);
+    ctx.fillStyle = accent;
+    ctx.fillRect(x, y, edge, height);
+  });
+
+  const baseline = y + height / 2 + spec.title * t * 0.36;
+  const timeX = x + edge + 7 * t;
+  drawText(ctx, formatTime(entry.start), timeX, baseline, spec.timeWidth * t - 6 * t, 700, spec.time * t, palette.soft);
+
+  const titleX = timeX + spec.timeWidth * t;
+  const right = x + width - 8 * t;
+  // One line is tight: show just where to go (room, else code) and favour the title.
+  const detail = entry.room || entry.code;
+  let detailWidth = 0;
+  if (detail) {
+    ctx.font = font(500, spec.detail * t);
+    detailWidth = Math.min(ctx.measureText(detail).width, (right - titleX) * 0.32);
+    drawText(ctx, detail, right, baseline, detailWidth, 500, spec.detail * t, palette.muted, "right");
+  }
+  drawText(ctx, entry.title, titleX, baseline, right - titleX - (detailWidth ? detailWidth + 10 * t : 0), 700, spec.title * t, palette.soft);
+}
+
+function drawItemGrid(
+  ctx: CanvasRenderingContext2D,
+  entries: ScheduleEntry[],
+  x: number,
+  y: number,
+  width: number,
+  choice: LayoutChoice,
+  metrics: LayoutMetrics,
+  s: number,
+  palette: WallpaperPalette,
+) {
+  const spec = itemSpecs[choice.style];
+  const t = s * metrics.textScale;
+  const gap = itemGap(choice.style, metrics) * s;
+  const height = itemHeight(choice.style, metrics) * s;
+  // Multi-column grids fill the row; a lone column is capped so it doesn't
+  // stretch into a very wide bar on big screens.
+  const fullWidth = (width - gap * (choice.columns - 1)) / choice.columns;
+  const columnWidth = choice.columns === 1 ? Math.min(fullWidth, spec.maxWidth * t) : fullWidth;
+  const draw = choice.style === "card" ? drawCardItem : drawRowItem;
+
+  entries.forEach((entry, index) => {
+    const column = index % choice.columns;
+    const row = Math.floor(index / choice.columns);
+    draw(
+      ctx,
+      entry,
+      x + column * (columnWidth + gap),
+      y + row * (height + gap),
+      columnWidth,
+      height,
+      t,
+      palette,
+    );
+  });
+}
+
+function countLabel(count: number) {
+  return count === 0 ? "No classes" : `${count} class${count === 1 ? "" : "es"}`;
+}
+
+function drawBackground(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  palette: WallpaperPalette,
+  gridStep: number,
+) {
+  const pageGradient = ctx.createLinearGradient(0, 0, width, height);
+  pageGradient.addColorStop(0, palette.pageStart);
+  pageGradient.addColorStop(0.52, palette.pageMid);
+  pageGradient.addColorStop(1, palette.pageEnd);
+  ctx.fillStyle = pageGradient;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = palette.grid;
+  for (let x = 0; x < width; x += gridStep) ctx.fillRect(x, 0, 1, height);
+  for (let y = 0; y < height; y += gridStep) ctx.fillRect(0, y, width, 1);
+}
+
+function drawEmptyMessage(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  unit: number,
+  palette: WallpaperPalette,
+) {
+  roundedRect(ctx, x, y, width, 70 * unit, 16 * unit, palette.emptyPanel);
+  drawText(ctx, "Add your classes in SmartSched", x + width / 2, y + 41 * unit, width - 24 * unit, 600, 15 * unit, palette.muted, "center");
+}
+
+function getDayGroups(entries: ScheduleEntry[], settings: ScheduleSettings): DayGroup[] {
+  return getWallpaperDays(entries, settings).map((day) => ({
+    day,
+    entries: entriesForDay(entries, day),
+  }));
+}
+
+function drawPhoneWallpaper(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
@@ -439,193 +668,152 @@ export function drawDesktopWallpaper(
 ) {
   const schoolPalette = getSchoolPalette(settings.schoolPaletteId);
   const palette = getWallpaperPalette(settings.wallpaperStyle, schoolPalette);
-  const profile = getWallpaperLayoutProfile(settings.wallpaperLayoutMode);
-  const autoScale = getAutoFitScale(width, height, settings.wallpaperAutoFit, true);
-  const scale = (width / 1920) * autoScale;
-  const spacingScale = scale * profile.spacingScale;
-  const paddingScale = scale * profile.paddingScale;
-  const fontScale = scale * profile.fontScale;
-  const s = (value: number) => value * scale;
-  const sp = (value: number) => value * spacingScale;
-  const pad = (value: number) => value * paddingScale;
-  const fs = (value: number) => value * fontScale;
-  const {
-    pageStart,
-    pageMid,
-    pageEnd,
-    text: silver,
-    muted,
-    soft,
-    panel,
-    panelAlt,
-    card,
-    line,
-  } = palette;
-  const pageGradient = ctx.createLinearGradient(0, 0, width, height);
-  pageGradient.addColorStop(0, pageStart);
-  pageGradient.addColorStop(0.54, pageMid);
-  pageGradient.addColorStop(1, pageEnd);
-  ctx.fillStyle = pageGradient;
-  ctx.fillRect(0, 0, width, height);
+  const metrics = getLayoutMetrics(settings);
+  // ~1 unit per CSS px on a phone; height bound keeps tablets from getting huge text.
+  const unit = Math.min(width / 360, height / 680);
+  const titleScale = clampNumber(settings.wallpaperTitleSize / 58, 0.6, 1.5, 1);
+  const titleSize = 24 * unit * titleScale;
+  const schoolSize = 12.5 * unit * titleScale;
+  const margin = 14 * unit;
+
+  // Leave the top for the lock-screen clock and the bottom for lock-screen shortcuts.
+  // Tablet clocks take a much smaller share of the screen than phone clocks.
+  const clockShare = settings.wallpaperDevice === "Tablet" ? 0.15 : 0.27;
+  const safeTop = settings.wallpaperClockSafetyZone ? height * clockShare : height * 0.06;
+  const safeBottom = height * 0.085;
+  const titleBaseline = safeTop + titleSize;
+  const schoolBaseline = titleBaseline + schoolSize * 1.55;
+  const headerBottom = schoolBaseline + 16 * unit;
+
+  drawBackground(ctx, width, height, palette, Math.max(44, 26 * unit));
+  const headerGradient = ctx.createLinearGradient(0, 0, width, headerBottom);
+  headerGradient.addColorStop(0, palette.headerStart);
+  headerGradient.addColorStop(0.55, palette.headerMid);
+  headerGradient.addColorStop(1, palette.headerEnd);
+  ctx.fillStyle = headerGradient;
+  ctx.fillRect(0, 0, width, headerBottom);
   ctx.fillStyle = schoolPalette.colors[0];
-  ctx.fillRect(0, 0, width * 0.72, Math.max(6, s(10)));
+  ctx.fillRect(0, headerBottom - 5 * unit, width * 0.72, 5 * unit);
   ctx.fillStyle = schoolPalette.colors[1];
-  ctx.fillRect(width * 0.72, 0, width * 0.28, Math.max(6, s(10)));
+  ctx.fillRect(width * 0.72, headerBottom - 5 * unit, width * 0.28, 5 * unit);
 
-  ctx.fillStyle = palette.grid;
-  for (let x = 0; x < width; x += Math.max(44, s(82))) {
-    ctx.fillRect(x, 0, 1, height);
+  drawText(ctx, settings.wallpaperTitle || "Class Schedule", margin + 4 * unit, titleBaseline, width - margin * 2, 800, titleSize, palette.soft);
+  drawText(ctx, schoolPalette.name, margin + 4 * unit, schoolBaseline, width - margin * 2, 500, schoolSize, palette.muted);
+
+  const boardTop = headerBottom + 14 * unit;
+  const boardWidth = width - margin * 2;
+  const boardHeight = height - safeBottom - boardTop;
+  const groups = getDayGroups(entries, settings);
+  if (groups.length === 0) {
+    drawEmptyMessage(ctx, margin, boardTop, boardWidth, unit, palette);
+    return;
   }
-  for (let y = 0; y < height; y += Math.max(44, s(82))) {
-    ctx.fillRect(0, y, width, 1);
-  }
 
-  const margin = Math.max(42, pad(72));
-  const title = settings.wallpaperTitle || "Class Schedule";
-  const titleSize = Math.max(28, fs(settings.wallpaperTitleSize));
-  const schoolSize = Math.max(15, fs(Math.round(settings.wallpaperTitleSize * 0.52)));
+  const choice = chooseLayout(groups, true, boardWidth, boardHeight, unit, metrics, settings.wallpaperAutoFit);
+  const s = unit * choice.scale;
+  const g = phoneGeometry(metrics);
 
-  ctx.fillStyle = soft;
-  ctx.font = `700 ${titleSize}px Arial`;
-  drawFittedText(ctx, title, margin, sp(108), width * 0.5, titleSize, 24);
-  ctx.fillStyle = muted;
-  ctx.font = `400 ${schoolSize}px Arial`;
-  drawFittedText(
-    ctx,
-    schoolPalette.name,
-    margin + pad(2),
-    sp(154),
-    width * 0.48,
-    schoolSize,
-    13,
-  );
+  let y = boardTop;
+  groups.forEach((group, index) => {
+    const count = group.entries.length;
+    const groupHeight =
+      (g.groupPad * 2 +
+        g.headerHeight +
+        (count > 0 ? g.headerGap + gridHeight(count, choice.columns, choice.style, metrics) : 0)) *
+      s;
+    roundedRect(ctx, margin, y, boardWidth, groupHeight, 14 * s, index % 2 === 0 ? palette.panel : palette.panelAlt);
 
-  roundedRect(ctx, width - margin - s(320), sp(76), s(320), sp(62), sp(31), "rgba(255, 255, 255, 0.08)");
-  ctx.fillStyle = silver;
-  ctx.font = `700 ${Math.max(15, fs(24))}px Arial`;
-  drawFittedText(
-    ctx,
-    formatWallpaperSize(width, height),
-    width - margin - s(284),
-    sp(115),
-    s(148),
-    Math.max(15, fs(24)),
-    12,
-  );
-  ctx.fillStyle = muted;
-  ctx.font = `400 ${Math.max(12, fs(18))}px Arial`;
-  drawFittedText(ctx, "DESKTOP", width - margin - s(124), sp(115), s(96), Math.max(12, fs(18)), 10);
+    const labelSize = 17 * metrics.dayScale * s;
+    const headerBaseline = y + g.groupPad * s + g.headerHeight * s * 0.76;
+    const labelX = margin + g.groupPad * s;
+    drawText(ctx, group.day.toUpperCase(), labelX, headerBaseline, boardWidth * 0.55, 800, labelSize, palette.text);
+    drawText(ctx, countLabel(count), margin + boardWidth - g.groupPad * s, headerBaseline, boardWidth * 0.4, 600, 11.5 * metrics.dayScale * s, palette.muted, "right");
 
-  const boardTop = Math.max(sp(196), height * 0.22);
-  const boardBottom = height - Math.max(42, sp(72));
-  const boardHeight = boardBottom - boardTop;
-  const wallpaperDays = getWallpaperDays(entries, settings);
-  const rowGap = Math.max(8, sp(14));
-  const rowWidth = width - margin * 2;
-  const dayWidth = Math.max(pad(142), rowWidth * 0.11);
-  const scheduleWidth = rowWidth - dayWidth - pad(48);
-  const itemGap = Math.max(8, sp(14));
-  const maxColumns = Math.max(
-    1,
-    Math.floor((scheduleWidth + itemGap) / (Math.max(s(250), 150) + itemGap)),
-  );
-  const rowHeights = allocateRowHeights(
-    boardHeight,
-    rowGap,
-    wallpaperDays.map((day) =>
-      Math.max(1, Math.ceil(entriesForDay(entries, day).length / maxColumns)),
-    ),
-    Math.max(sp(92), 68),
-  );
-  const cardColors: WallpaperCardColors = {
-    card,
-    time: palette.time,
-    title: soft,
-    detail: muted,
-  };
-
-  wallpaperDays.forEach((day, index) => {
-    const x = margin;
-    const rowHeight = rowHeights[index];
-    const y =
-      boardTop +
-      rowHeights.slice(0, index).reduce((sum, height) => sum + height, 0) +
-      index * rowGap;
-    const dayEntries = entriesForDay(entries, day);
-    const rowColor = index % 2 === 0 ? panel : panelAlt;
-
-    ctx.shadowColor = "rgba(0, 0, 0, 0.24)";
-    ctx.shadowBlur = sp(24);
-    ctx.shadowOffsetY = sp(10);
-    roundedRect(ctx, x, y, rowWidth, rowHeight, sp(24), rowColor);
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-
-    ctx.fillStyle = silver;
-    ctx.font = `700 ${Math.max(18, fs(settings.wallpaperDayLabelSize * 0.72))}px Arial`;
-    drawFittedText(
-      ctx,
-      day.slice(0, 3).toUpperCase(),
-      x + pad(24),
-      y + sp(48),
-      dayWidth - pad(40),
-      Math.max(18, fs(settings.wallpaperDayLabelSize * 0.72)),
-      14,
-    );
-    ctx.fillStyle = muted;
-    ctx.font = `700 ${Math.max(9, fs(14))}px Arial`;
-    drawFittedText(
-      ctx,
-      `${dayEntries.length} ITEM${dayEntries.length === 1 ? "" : "S"}`,
-      x + pad(26),
-      y + sp(76),
-      dayWidth - pad(44),
-      Math.max(9, fs(14)),
-      8,
-    );
-    ctx.fillStyle = line;
-    ctx.fillRect(x + dayWidth, y + sp(24), Math.max(1, s(2)), rowHeight - sp(48));
-
-    const scheduleX = x + dayWidth + pad(24);
-    const scheduleY = y + sp(18);
-    const scheduleHeight = rowHeight - sp(36);
-    const visibleEntries = dayEntries;
-    const columnCount = Math.max(1, Math.min(maxColumns, visibleEntries.length));
-    const gridRowCount = Math.max(1, Math.ceil(visibleEntries.length / columnCount));
-    const itemWidth =
-      (scheduleWidth - itemGap * Math.max(0, columnCount - 1)) / columnCount;
-    const itemHeight = Math.max(
-      1,
-      (scheduleHeight - itemGap * Math.max(0, gridRowCount - 1)) / gridRowCount,
-    );
-    const itemY = scheduleY;
-
-    if (dayEntries.length === 0) {
-      roundedRect(ctx, scheduleX, itemY, scheduleWidth, Math.max(sp(64), itemHeight), sp(16), palette.emptyPanel);
-      ctx.fillStyle = muted;
-      ctx.font = `700 ${Math.max(11, fs(18))}px Arial`;
-      drawFittedText(ctx, "No scheduled class", scheduleX + pad(18), itemY + itemHeight / 2 + sp(6), scheduleWidth - pad(36), Math.max(11, fs(18)), 9);
-      return;
-    }
-
-    visibleEntries.forEach((entry, entryIndex) => {
-      const columnIndex = entryIndex % columnCount;
-      const gridRowIndex = Math.floor(entryIndex / columnCount);
-      const itemX = scheduleX + columnIndex * (itemWidth + itemGap);
-      const gridItemY = itemY + gridRowIndex * (itemHeight + itemGap);
-      drawReadableScheduleCard(
+    if (count > 0) {
+      drawItemGrid(
         ctx,
-        entry,
-        itemX,
-        gridItemY,
-        itemWidth,
-        itemHeight,
-        scale * 0.72,
-        cardColors,
-        settings.wallpaperCardTextSize,
-        profile,
+        group.entries,
+        labelX,
+        y + (g.groupPad + g.headerHeight + g.headerGap) * s,
+        boardWidth - g.groupPad * s * 2,
+        choice,
+        metrics,
+        s,
+        palette,
       );
-    });
+    }
+    y += groupHeight + g.dayGap * s;
+  });
+}
+
+function drawDesktopWallpaper(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  settings: ScheduleSettings,
+  entries: ScheduleEntry[],
+) {
+  const schoolPalette = getSchoolPalette(settings.schoolPaletteId);
+  const palette = getWallpaperPalette(settings.wallpaperStyle, schoolPalette);
+  const metrics = getLayoutMetrics(settings);
+  // ~1 unit per CSS px on a 1280x720-class display.
+  const unit = Math.min(width / 1280, height / 720);
+  const titleScale = clampNumber(settings.wallpaperTitleSize / 58, 0.6, 1.5, 1);
+  const titleSize = 30 * unit * titleScale;
+  const schoolSize = 14 * unit * titleScale;
+  const margin = 36 * unit;
+
+  drawBackground(ctx, width, height, palette, Math.max(44, 54 * unit));
+  ctx.fillStyle = schoolPalette.colors[0];
+  ctx.fillRect(0, 0, width * 0.72, 6 * unit);
+  ctx.fillStyle = schoolPalette.colors[1];
+  ctx.fillRect(width * 0.72, 0, width * 0.28, 6 * unit);
+
+  const titleBaseline = margin + titleSize;
+  const schoolBaseline = titleBaseline + schoolSize * 1.6;
+  drawText(ctx, settings.wallpaperTitle || "Class Schedule", margin, titleBaseline, width * 0.6, 800, titleSize, palette.soft);
+  drawText(ctx, schoolPalette.name, margin + unit, schoolBaseline, width * 0.6, 500, schoolSize, palette.muted);
+
+  const boardTop = schoolBaseline + 22 * unit;
+  const boardWidth = width - margin * 2;
+  // Extra bottom room for a taskbar or dock.
+  const boardHeight = height - boardTop - Math.max(margin, 48 * unit);
+  const groups = getDayGroups(entries, settings);
+  if (groups.length === 0) {
+    drawEmptyMessage(ctx, margin, boardTop, Math.min(boardWidth, 520 * unit), unit, palette);
+    return;
+  }
+
+  const choice = chooseLayout(groups, false, boardWidth, boardHeight, unit, metrics, settings.wallpaperAutoFit);
+  const s = unit * choice.scale;
+  const g = desktopGeometry(metrics);
+
+  let y = boardTop;
+  groups.forEach((group, index) => {
+    const count = group.entries.length;
+    const rowHeight = desktopRowHeight(count, choice.style, choice.columns, metrics) * s;
+    roundedRect(ctx, margin, y, boardWidth, rowHeight, 14 * s, index % 2 === 0 ? palette.panel : palette.panelAlt);
+
+    const labelX = margin + g.rowPad * s + 4 * s;
+    const labelSize = 19 * metrics.dayScale * s;
+    const labelBaseline = y + g.rowPad * s + labelSize * 0.95;
+    drawText(ctx, group.day.slice(0, 3).toUpperCase(), labelX, labelBaseline, g.dayColumn * s - g.rowPad * s * 2, 800, labelSize, palette.text);
+    if (count > 0) {
+      drawText(ctx, countLabel(count), labelX, labelBaseline + 15 * metrics.dayScale * s, g.dayColumn * s - g.rowPad * s * 2, 600, 10.5 * metrics.dayScale * s, palette.muted);
+    }
+    ctx.fillStyle = palette.line;
+    ctx.globalAlpha = 0.6;
+    ctx.fillRect(margin + g.dayColumn * s, y + 10 * s, Math.max(1, 1.5 * s), rowHeight - 20 * s);
+    ctx.globalAlpha = 1;
+
+    const gridX = margin + g.dayColumn * s + g.rowPad * s;
+    const gridWidth = boardWidth - g.dayColumn * s - g.rowPad * s * 2;
+    if (count === 0) {
+      drawText(ctx, "No classes", gridX, y + rowHeight / 2 + 5 * s, gridWidth, 600, 13 * metrics.textScale * s, palette.muted);
+    } else {
+      drawItemGrid(ctx, group.entries, gridX, y + g.rowPad * s, gridWidth, choice, metrics, s, palette);
+    }
+    y += rowHeight + g.dayGap * s;
   });
 }
 
@@ -636,280 +824,10 @@ export function drawWallpaper(
   settings: ScheduleSettings,
   entries: ScheduleEntry[],
 ) {
+  ctx.textBaseline = "alphabetic";
   if (width >= height) {
     drawDesktopWallpaper(ctx, width, height, settings, entries);
-    return;
+  } else {
+    drawPhoneWallpaper(ctx, width, height, settings, entries);
   }
-
-  const baseScale = width / 1440;
-  const profile = getWallpaperLayoutProfile(settings.wallpaperLayoutMode);
-  const autoScale = getAutoFitScale(width, height, settings.wallpaperAutoFit, false);
-  const scale = baseScale * autoScale;
-  const spacingScale = scale * profile.spacingScale;
-  const paddingScale = scale * profile.paddingScale;
-  const fontScale = scale * profile.fontScale;
-  const s = (value: number) => value * scale;
-  const sp = (value: number) => value * spacingScale;
-  const pad = (value: number) => value * paddingScale;
-  const fs = (value: number) => value * fontScale;
-  const title = settings.wallpaperTitle || "Class Schedule";
-  const busiestDayCount = Math.max(
-    0,
-    ...days.map((day) => entriesForDay(entries, day).length),
-  );
-  const denseSchedule = busiestDayCount >= 5 || entries.length >= 18;
-  const titleSize = Math.max(23, fs(settings.wallpaperTitleSize));
-  const schoolSize = Math.max(13, fs(Math.round(settings.wallpaperTitleSize * 0.52)));
-  const clockSafetyBoost = settings.wallpaperClockSafetyZone ? s(140) : 0;
-  const phoneClockSafeHeight = Math.round(
-    Math.min(height * 0.38, Math.max(height * 0.2, s(560) + clockSafetyBoost)),
-  );
-  const titleBandHeight = Math.max(sp(150), titleSize + schoolSize + sp(54));
-  const headerHeight = Math.round(
-    Math.min(height * 0.48, phoneClockSafeHeight + titleBandHeight),
-  );
-  const schoolPalette = getSchoolPalette(settings.schoolPaletteId);
-  const palette = getWallpaperPalette(settings.wallpaperStyle, schoolPalette);
-  const {
-    pageStart,
-    pageMid,
-    pageEnd,
-    headerStart,
-    headerMid,
-    headerEnd,
-    text: silver,
-    muted,
-    soft,
-    panel,
-    panelAlt,
-    line,
-    emptyPanel,
-  } = palette;
-  const cardColors: WallpaperCardColors = {
-    card: palette.card,
-    time: palette.time,
-    title: palette.soft,
-    detail: palette.muted,
-  };
-
-  const pageGradient = ctx.createLinearGradient(0, 0, width, height);
-  pageGradient.addColorStop(0, pageStart);
-  pageGradient.addColorStop(0.52, pageMid);
-  pageGradient.addColorStop(1, pageEnd);
-  ctx.fillStyle = pageGradient;
-  ctx.fillRect(0, 0, width, height);
-
-  const headerGradient = ctx.createLinearGradient(0, 0, width, headerHeight);
-  headerGradient.addColorStop(0, headerStart);
-  headerGradient.addColorStop(0.55, headerMid);
-  headerGradient.addColorStop(1, headerEnd);
-  ctx.fillStyle = headerGradient;
-  ctx.fillRect(0, 0, width, headerHeight);
-
-  ctx.fillStyle = schoolPalette.colors[0];
-  ctx.fillRect(0, headerHeight - 18, width, 10);
-  ctx.fillStyle = schoolPalette.colors[1];
-  ctx.fillRect(0, headerHeight - 8, width, 8);
-
-  ctx.fillStyle = palette.grid;
-  for (let x = 0; x < width; x += Math.max(44, s(76))) {
-    ctx.fillRect(x, 0, 1, height);
-  }
-  for (let y = 0; y < height; y += Math.max(44, s(76))) {
-    ctx.fillRect(0, y, width, 1);
-  }
-
-  const left = Math.max(20, pad(58));
-  const top = headerHeight + sp(16);
-  const tableWidth = width - left * 2;
-  const bottom =
-    height - (denseSchedule ? Math.max(sp(94), 64) : Math.max(sp(120), 76));
-  const tableHeight = bottom - top;
-  const rowGap = denseSchedule ? Math.max(4, sp(9)) : Math.max(6, sp(16));
-  const wallpaperDays = getWallpaperDays(entries, settings);
-  const rowHeights = allocateRowHeights(
-    tableHeight,
-    rowGap,
-    wallpaperDays.map((day) => Math.max(1, entriesForDay(entries, day).length)),
-    denseSchedule ? Math.max(sp(104), 72) : Math.max(sp(132), 88),
-  );
-  const titleBaseline = Math.min(
-    headerHeight - sp(76),
-    phoneClockSafeHeight + titleSize + sp(24),
-  );
-  const schoolBaseline = Math.min(
-    headerHeight - sp(36),
-    titleBaseline + schoolSize * 1.4,
-  );
-
-  ctx.fillStyle = soft;
-  ctx.font = `700 ${titleSize}px Arial`;
-  drawFittedText(ctx, title, left + pad(18), titleBaseline, s(800), titleSize, 20);
-  ctx.fillStyle = muted;
-  ctx.font = `400 ${schoolSize}px Arial`;
-  drawFittedText(
-    ctx,
-    schoolPalette.name,
-    left + pad(20),
-    schoolBaseline,
-    s(820),
-    schoolSize,
-    12,
-  );
-
-  roundedRect(
-    ctx,
-    width - s(430),
-    titleBaseline - titleSize * 0.95,
-    s(300),
-    sp(62),
-    sp(31),
-    "rgba(255, 255, 255, 0.12)",
-  );
-  ctx.fillStyle = silver;
-  ctx.font = `700 ${Math.max(11, fs(24))}px Arial`;
-  drawFittedText(
-    ctx,
-    formatWallpaperSize(width, height),
-    width - s(390),
-    titleBaseline - titleSize * 0.95 + sp(39),
-    s(150),
-    Math.max(11, fs(24)),
-    9,
-  );
-  ctx.fillStyle = muted;
-  ctx.font = `400 ${Math.max(9, fs(20))}px Arial`;
-  drawFittedText(
-    ctx,
-    "PHONE WALLPAPER",
-    width - s(245),
-    titleBaseline - titleSize * 0.95 + sp(39),
-    s(130),
-    Math.max(9, fs(20)),
-    8,
-  );
-
-  ctx.shadowColor = "rgba(0, 0, 0, 0.38)";
-  ctx.shadowBlur = sp(38);
-  ctx.shadowOffsetY = sp(18);
-  roundedRect(ctx, left - pad(14), top - sp(18), tableWidth + pad(28), tableHeight + sp(36), sp(36), "rgba(11, 16, 22, 0.45)");
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
-
-  wallpaperDays.forEach((day, index) => {
-    const rowHeight = rowHeights[index];
-    const y =
-      top +
-      rowHeights.slice(0, index).reduce((sum, height) => sum + height, 0) +
-      index * rowGap;
-    const dayEntries = entriesForDay(entries, day);
-    const rowColor = index % 2 === 0 ? panel : panelAlt;
-    roundedRect(ctx, left, y, tableWidth, rowHeight, sp(28), rowColor);
-
-    const dayColumnWidth = denseSchedule ? pad(132) : pad(166);
-    const scheduleInset = denseSchedule ? pad(22) : pad(32);
-
-    ctx.fillStyle = line;
-    ctx.fillRect(
-      left + dayColumnWidth,
-      y + sp(denseSchedule ? 16 : 26),
-      Math.max(1, s(2)),
-      rowHeight - sp(denseSchedule ? 32 : 52),
-    );
-
-    ctx.fillStyle = silver;
-    const dayLabelSize = Math.max(
-      16,
-      fs(settings.wallpaperDayLabelSize * (denseSchedule ? 0.82 : 1)),
-    );
-    ctx.font = `700 ${dayLabelSize}px Arial`;
-    ctx.fillText(
-      day.slice(0, 3).toUpperCase(),
-      left + pad(denseSchedule ? 22 : 34),
-      y + sp(denseSchedule ? 62 : 78),
-    );
-    ctx.fillStyle = muted;
-    const fullDaySize = Math.max(9, fs(Math.round(settings.wallpaperDayLabelSize * 0.42)));
-    ctx.font = `700 ${fullDaySize}px Arial`;
-    if (!denseSchedule) {
-      drawFittedText(ctx, day.toUpperCase(), left + pad(38), y + sp(114), pad(96), fullDaySize, 8);
-    }
-
-    roundedRect(
-      ctx,
-      left + pad(denseSchedule ? 20 : 34),
-      y + rowHeight - sp(denseSchedule ? 54 : 72),
-      pad(denseSchedule ? 90 : 106),
-      sp(denseSchedule ? 32 : 40),
-      sp(20),
-      "rgba(255, 255, 255, 0.1)",
-    );
-    ctx.fillStyle = silver;
-    ctx.font = `700 ${Math.max(8, fs(20))}px Arial`;
-    drawFittedText(
-      ctx,
-      `${dayEntries.length} ITEM${dayEntries.length === 1 ? "" : "S"}`,
-      left + pad(denseSchedule ? 34 : 52),
-      y + rowHeight - sp(denseSchedule ? 32 : 45),
-      pad(denseSchedule ? 62 : 74),
-      Math.max(8, fs(20)),
-      7,
-    );
-
-    const scheduleX = left + dayColumnWidth + scheduleInset;
-    const scheduleY = y + sp(denseSchedule ? 12 : 22);
-    const scheduleWidth = tableWidth - dayColumnWidth - scheduleInset - pad(30);
-    const scheduleHeight = rowHeight - sp(denseSchedule ? 24 : 44);
-
-    if (dayEntries.length === 0) {
-      roundedRect(ctx, scheduleX, scheduleY, scheduleWidth, scheduleHeight, sp(22), emptyPanel);
-      ctx.fillStyle = muted;
-      ctx.font = `700 ${Math.max(12, fs(30))}px Arial`;
-      drawFittedText(
-        ctx,
-        "No scheduled class",
-        scheduleX + pad(34),
-        scheduleY + scheduleHeight / 2 + sp(10),
-        scheduleWidth - pad(68),
-        Math.max(12, fs(30)),
-        10,
-      );
-      return;
-    }
-
-    const itemGap = Math.min(
-      Math.max(3, sp(denseSchedule ? 8 : 14)),
-      scheduleHeight / Math.max(6, dayEntries.length * 5),
-    );
-    const visibleEntries = dayEntries;
-    const availableItemHeight =
-      (scheduleHeight - itemGap * (visibleEntries.length - 1)) /
-      visibleEntries.length;
-    const itemHeight = Math.max(1, availableItemHeight);
-    const itemGroupHeight =
-      itemHeight * visibleEntries.length + itemGap * (visibleEntries.length - 1);
-    const itemStartY = scheduleY + (scheduleHeight - itemGroupHeight) / 2;
-
-    visibleEntries.forEach((entry, entryIndex) => {
-      const itemY = itemStartY + entryIndex * (itemHeight + itemGap);
-      drawReadableScheduleCard(
-        ctx,
-        entry,
-        scheduleX,
-        itemY,
-        scheduleWidth,
-        itemHeight,
-        scale,
-        cardColors,
-        settings.wallpaperCardTextSize,
-        profile,
-      );
-    });
-  });
-
-  ctx.fillStyle = muted;
-  ctx.font = `400 ${Math.max(10, fs(24))}px Arial`;
-  ctx.fillText("Generated by SmartSched Local", s(76), height - Math.max(30, sp(56)));
-  ctx.fillStyle = "#9ca3af";
-  ctx.fillRect(width - s(272), height - Math.max(28, sp(52)), s(196), Math.max(3, s(8)));
 }
