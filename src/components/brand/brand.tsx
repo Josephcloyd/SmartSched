@@ -1,7 +1,7 @@
-import { ShieldCheck } from "lucide-react";
 import { brand } from "@/lib/brand";
+import { ShieldCheck } from "lucide-react";
 
-// Official GetLaunchPH mark (from launchph/src/components/brand.tsx) so every tool shares it.
+// ─── shared logo geometry (mirrors launchph/src/components/brand.tsx) ─────────
 const LOGO_HEX_PATH =
   "M24 2.6 43 13.5c1.2.7 2 2 2 3.4v14.2c0 1.4-.8 2.7-2 3.4L24 45.4 5 34.5a4 4 0 0 1-2-3.4V16.9c0-1.4.8-2.7 2-3.4L24 2.6Z";
 const LOGO_NODES = [
@@ -9,9 +9,20 @@ const LOGO_NODES = [
   { cx: 14.5, cy: 20.2 },
   { cx: 33.8, cy: 19.2 },
 ];
+const LOGO_LINES = [
+  { className: "lm-trunk", d: "M24 38.2V15.8" },
+  { className: "lm-left",  d: "M24 32.8h-9.5v-9.1" },
+  { className: "lm-right", d: "M24 29.7h9.8v-7" },
+];
 
-/** GetLaunchPH hexagon with its "circuit tree" glyph; cream on dark, green on light. */
-export function BrandMark({ size = 40, className = "" }: { size?: number; className?: string }) {
+// ─── BrandMark — used in the app header (light/dark aware) ────────────────────
+export function BrandMark({
+  size = 40,
+  className = "",
+}: {
+  size?: number;
+  className?: string;
+}) {
   return (
     <svg
       width={size}
@@ -38,7 +49,7 @@ export function BrandMark({ size = 40, className = "" }: { size?: number; classN
   );
 }
 
-/** "SmartSched" with the accent half in sage, and "BY GETLAUNCHPH" underneath. */
+// ─── BrandLockup — used in the app header ─────────────────────────────────────
 export function BrandLockup({ size = "sm" }: { size?: "sm" | "lg" }) {
   const large = size === "lg";
   return (
@@ -65,22 +76,84 @@ export function BrandLockup({ size = "sm" }: { size?: "sm" | "lg" }) {
   );
 }
 
-/** Full-screen loading splash shown while the app starts. */
+// ─── SplashScreen — exact GetLaunchPH animated loading screen ─────────────────
 export function SplashScreen() {
   return (
-    <div
-      className="fixed inset-0 z-[70] flex flex-col items-center justify-center bg-background px-6"
-      role="status"
-      aria-label={`Loading ${brand.appName}`}
-    >
-      <div className="animate-fade-in flex flex-col items-center">
-        <BrandLockup size="lg" />
-        <div className="mt-8 h-1 w-40 overflow-hidden rounded-full bg-surface-2">
-          <div className="splash-progress h-full w-1/3 rounded-full bg-primary-fill" />
+    <div className="lm-screen" role="status" aria-label={`Loading ${brand.appName}`}>
+      <div className="lm-stage">
+        {/* animated emblem */}
+        <div className="lm-emblem" aria-hidden="true">
+          <span className="lm-halo" />
+          <span className="lm-shadow" />
+          <span className="lm-orbit">
+            <span className="lm-orbit-arc" />
+          </span>
+          <svg viewBox="0 0 48 48">
+            <defs>
+              <clipPath id="lm-hex-clip">
+                <path d={LOGO_HEX_PATH} />
+              </clipPath>
+              <linearGradient id="lm-sheen-gradient" x1="0" y1="0" x2="1" y2="0.35">
+                <stop offset="0"   stopColor="#fff" stopOpacity="0" />
+                <stop offset="0.5" stopColor="#fff" stopOpacity="0.7" />
+                <stop offset="1"   stopColor="#fff" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <path className="lm-hex-fill" d={LOGO_HEX_PATH} fill="currentColor" />
+            <path className="lm-hex-line" d={LOGO_HEX_PATH} pathLength={1} />
+            <g className="lm-ink">
+              {LOGO_LINES.map((line) => (
+                <path
+                  key={line.className}
+                  className={`lm-line ${line.className}`}
+                  d={line.d}
+                  pathLength={1}
+                />
+              ))}
+              {LOGO_LINES.map((line) => (
+                <path
+                  key={`${line.className}-pulse`}
+                  className={`lm-pulse ${line.className}`}
+                  d={line.d}
+                  pathLength={1}
+                />
+              ))}
+              {LOGO_NODES.map((node, index) => (
+                <circle
+                  key={node.cx}
+                  className={`lm-node lm-node-${index + 1}`}
+                  {...node}
+                  r="4.5"
+                />
+              ))}
+              <rect className="lm-base" x="19.4" y="35.8" width="9.2" height="6.3" rx="1.9" />
+            </g>
+            <g clipPath="url(#lm-hex-clip)">
+              <rect className="lm-sheen" x="0" y="0" width="14" height="48" fill="url(#lm-sheen-gradient)" />
+            </g>
+          </svg>
         </div>
-        <p className="mt-6 flex items-center gap-1.5 text-xs text-muted">
-          <ShieldCheck aria-hidden="true" className="size-3.5 text-primary" />
-          Your schedule stays on this device
+
+        {/* "GetLaunchPH" letter-by-letter wordmark */}
+        <p className="lm-wordmark" aria-hidden="true">
+          {[..."GetLaunch"].map((letter, index) => (
+            <span
+              key={index}
+              className="lm-letter"
+              style={{ "--i": index } as React.CSSProperties}
+            >
+              {letter}
+            </span>
+          ))}
+          <span className="lm-letter lm-letter-accent" style={{ "--i": 10 } as React.CSSProperties}>
+            PH
+          </span>
+        </p>
+
+        {/* caption */}
+        <p className="lm-caption">
+          <ShieldCheck aria-hidden="true" className="lm-caption-icon" />
+          {brand.tagline}
         </p>
       </div>
     </div>
