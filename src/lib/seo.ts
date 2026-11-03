@@ -4,6 +4,7 @@
  */
 import { brand } from "@/lib/brand";
 import { schoolPalettes } from "@/lib/school-palettes";
+import { appScreenshots } from "@/lib/screenshots";
 
 export const seoTitle = `${brand.appName}: Free Class Schedule Maker & Wallpaper | ${brand.company}`;
 
@@ -94,6 +95,13 @@ export function buildJsonLd() {
         offers: { "@type": "Offer", price: "0", priceCurrency: "PHP" },
         featureList: seoFeatures.map((feature) => feature.title),
         image: `${brand.siteUrl}/opengraph-image.png`,
+        screenshot: appScreenshots.map((shot) => ({
+          "@type": "ImageObject",
+          url: `${brand.siteUrl}${shot.src}`,
+          width: shot.width,
+          height: shot.height,
+          caption: shot.label,
+        })),
         publisher: { "@id": `${appUrl}#org` },
       },
       {

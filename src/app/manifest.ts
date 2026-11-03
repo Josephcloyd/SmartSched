@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { brand, brandColors } from "@/lib/brand";
+import { appScreenshots } from "@/lib/screenshots";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -17,5 +18,14 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
       { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
+    // Enables the richer install sheet (screenshot gallery) on Android and desktop Chrome.
+    screenshots: appScreenshots.map((shot) => ({
+      src: shot.src,
+      sizes: `${shot.width}x${shot.height}`,
+      type: "image/webp",
+      form_factor: shot.formFactor,
+      label: shot.label,
+    })),
+    categories: ["education", "productivity", "utilities"],
   };
 }
