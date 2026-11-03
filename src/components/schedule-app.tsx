@@ -1,98 +1,74 @@
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import {
-  CalendarCheck2,
-  CalendarDays,
-  Ellipsis,
-  MoonStar,
-  Plus,
-  Sun,
-  type LucideIcon,
-} from "lucide-react";
-import {
-  days,
-  scheduleTypes,
-  wallpaperSizePresets,
-  type AppTab,
-  type DayName,
-  type HolidayCalendar,
-  type ScheduleEntry,
-  type ScheduleSettings,
-  type ScheduleType,
-  type ScheduleViewMode,
-  type WallpaperDevice,
+import { MoonStar, Plus, Sun } from "lucide-react";
+import type {
+  AppTab,
+  DayName,
+  HolidayCalendar,
+  ScheduleEntry,
+  ScheduleSettings,
+  ScheduleViewMode,
+  WallpaperDevice,
 } from "@/lib/types";
-import {
-  defaultSizeForDevice,
-  detectDeviceType,
-  deviceForSizeId,
-  isWallpaperDevice,
-} from "@/lib/wallpaper-devices";
+import { detectDeviceType } from "@/lib/wallpaper-devices";
 import {
   defaultHolidayCalendar,
   detectHolidayLocation,
   fetchPublicHolidays,
   holidayCalendarNeedsRefresh,
   holidayForDate,
-  normalizeHolidayCalendar,
   popularCountries,
   upcomingHolidays,
 } from "@/lib/holidays";
+import { dayNameForDate, hasTimeConflict, sortEntries, uid } from "@/lib/utils";
+import { getSchoolPalette } from "@/lib/school-palettes";
+import { formatWallpaperSize } from "@/lib/wallpaper-renderer";
 import {
-  dayNameForDate,
-  formatTime,
-  hasTimeConflict,
-  nextDateForDay,
-  sortEntries,
-  uid,
-} from "@/lib/utils";
+  defaultSettings,
+  parseScheduleData,
+  readStoredSchedule,
+  serializeSchedule,
+  storageKeys,
+  writeStoredSchedule,
+} from "@/lib/schedule-storage";
+import { buildIcs } from "@/lib/ics";
+import { checkDueNotifications, getNotificationPermission } from "@/lib/reminders";
+import { downloadBlob, downloadText } from "@/lib/download";
 import {
-  getSchoolPalette,
-} from "@/lib/school-palettes";
-import {
-  drawWallpaper,
-  formatWallpaperSize,
-  typeStyle,
-} from "@/lib/wallpaper-renderer";
-import {
-  PhonePreviewDialog,
-  type SelectedWallpaperSize,
-} from "@/components/wallpaper/wallpaper-modal";
+  detectDeviceWallpaperSize,
+  getWallpaperSizePreset,
+  renderWallpaperBlob,
+  type ScreenSize,
+} from "@/lib/wallpaper-export";
+import { clearShareHash, decodeSharedSchedule, readShareHash, type SharedSchedule } from "@/lib/share-link";
+import { PhonePreviewDialog } from "@/components/wallpaper/wallpaper-modal";
 import { EntryFormSheet, type EntryFormValues } from "@/components/schedule/entry-form-sheet";
 import { ScheduleView } from "@/components/schedule/schedule-view";
 import { TodayView } from "@/components/today/today-view";
 import { MoreView } from "@/components/more/more-view";
 import { FeedbackWidget } from "@/components/feedback-widget";
-import { BrandLockup, SplashScreen } from "@/components/brand/brand";
+import { BrandLockup } from "@/components/brand/brand";
+import { SplashGate } from "@/components/brand/splash-gate";
 import { SupportButton, SupportSheet } from "@/components/brand/support";
 import { PrivacyBanner } from "@/components/brand/privacy-notice";
+import { ShareScheduleSheet } from "@/components/share/share-schedule-sheet";
+import { ImportSharedSheet } from "@/components/share/import-shared-sheet";
+import {
+  AppToast,
+  BottomTabBar,
+  DesktopTabs,
+  FeedbackBubble,
+  ShareButton,
+  type Toast,
+} from "@/components/app-shell/app-navigation";
 import { brand } from "@/lib/brand";
 
-const storageKey = "smartsched.local.schedule.v1";
-const notifiedKey = "smartsched.local.notified.v1";
-const themeKey = "smartsched.local.theme.v1";
-const privacyNoteKey = "smartsched.local.privacy-note-dismissed.v1";
-// The splash intro (hex trace → tree draw → wordmark → caption) finishes at ~1.3s.
-// Hold 1.45s, then a 0.35s fade-out = ~1.8s total on screen.
-const SPLASH_MIN_MS = 1450;
-
-const defaultSettings: ScheduleSettings = {
-  schoolPaletteId: "university-of-cebu",
-  wallpaperTitle: "Class Schedule",
-  wallpaperStyle: "School Palette",
-  wallpaperSizeId: "device-auto",
-  wallpaperCustomWidth: 1080,
-  wallpaperCustomHeight: 1920,
-  wallpaperLayoutMode: "Balanced",
-  wallpaperTitleSize: 58,
-  wallpaperDayLabelSize: 52,
-  wallpaperCardTextSize: 28,
-  wallpaperAutoFit: true,
-  wallpaperShowEmptyWeekdays: true,
-  wallpaperExportFormat: "PNG",
-  wallpaperClockSafetyZone: true,
-};
+const NOW_REFRESH_MS = 30_000;
+const REMINDER_CHECK_MS = 30_000;
+const TOAST_MS = 3_500;
+const TOAST_WITH_ACTION_MS = 6_000;
+const THEME_COLORS = { dark: "#141414", light: "#f4f4f1" } as const;
 
 const blankEntry: EntryFormValues = {
   title: "",
@@ -106,164 +82,10 @@ const blankEntry: EntryFormValues = {
   accentColor: "#256f53",
 };
 
-const tabs: { id: AppTab; label: string; icon: LucideIcon }[] = [
-  { id: "today", label: "Today", icon: CalendarCheck2 },
-  { id: "schedule", label: "Schedule", icon: CalendarDays },
-  { id: "more", label: "More", icon: Ellipsis },
-];
-
-type Toast = {
-  id: number;
-  text: string;
-  action?: { label: string; onClick: () => void };
-};
-
 type FormState = {
   initial: EntryFormValues;
   editingId: string | null;
 };
-
-type StoredSchedule = {
-  settings: ScheduleSettings;
-  entries: ScheduleEntry[];
-  holidayCalendar: HolidayCalendar;
-};
-
-type RawStoredSchedule = {
-  settings?: Partial<ScheduleSettings>;
-  entries?: (ScheduleEntry | { day?: DayName; days?: DayName[] })[];
-  holidayCalendar?: Partial<HolidayCalendar>;
-};
-
-function readStoredSchedule(): StoredSchedule | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) {
-      return null;
-    }
-
-    const parsed = JSON.parse(raw) as RawStoredSchedule;
-    return {
-      settings: normalizeSettings(parsed.settings),
-      entries: Array.isArray(parsed.entries)
-        ? parsed.entries.map(normalizeEntry)
-        : [],
-      holidayCalendar: normalizeHolidayCalendar(parsed.holidayCalendar),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function normalizeSettings(settings?: Partial<ScheduleSettings>): ScheduleSettings {
-  const merged = {
-    ...defaultSettings,
-    ...settings,
-    wallpaperClockSafetyZone: settings?.wallpaperClockSafetyZone ?? true,
-  };
-  return {
-    ...merged,
-    wallpaperDevice: isWallpaperDevice(merged.wallpaperDevice)
-      ? merged.wallpaperDevice
-      : deviceForSizeId(
-          merged.wallpaperSizeId,
-          detectDeviceType(),
-          merged.wallpaperCustomWidth,
-          merged.wallpaperCustomHeight,
-        ),
-  };
-}
-
-function normalizeEntry(raw: unknown): ScheduleEntry {
-  const entry = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const legacyDay = typeof entry.day === "string" ? entry.day : undefined;
-  const entryDays = Array.isArray(entry.days)
-    ? entry.days
-    : legacyDay
-      ? [legacyDay]
-      : ["Monday"];
-
-  const validDays = entryDays.filter((day): day is DayName =>
-    typeof day === "string" && days.includes(day as DayName),
-  );
-
-  return {
-    id: typeof entry.id === "string" ? entry.id : uid(),
-    title: typeof entry.title === "string" ? entry.title : "Untitled",
-    code: typeof entry.code === "string" ? entry.code : "",
-    room: typeof entry.room === "string" ? entry.room : "",
-    days: validDays.length > 0 ? validDays : ["Monday"],
-    start: typeof entry.start === "string" ? entry.start : "08:00",
-    end: typeof entry.end === "string" ? entry.end : "09:00",
-    type: typeof entry.type === "string" && scheduleTypes.includes(entry.type as ScheduleType) ? (entry.type as ScheduleType) : "Class",
-    reminderMinutes:
-      typeof entry.reminderMinutes === "number" ? entry.reminderMinutes : 15,
-    accentColor:
-      typeof entry.accentColor === "string"
-        ? entry.accentColor
-        : typeStyle[entry.type as ScheduleType] || "#256f53",
-  };
-}
-
-function detectDeviceWallpaperSize() {
-  if (typeof window === "undefined") {
-    return { width: 1080, height: 1920 };
-  }
-  const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
-  return {
-    width: Math.round(window.screen.width * pixelRatio) || 1080,
-    height: Math.round(window.screen.height * pixelRatio) || 1920,
-  };
-}
-
-function getWallpaperSizePreset(
-  settings: ScheduleSettings,
-  detectedDeviceSize: { width: number; height: number },
-  detectedDevice: WallpaperDevice,
-): SelectedWallpaperSize {
-  const device = settings.wallpaperDevice ?? detectedDevice;
-  // "This device" only makes sense when the wallpaper is for the kind of screen in hand.
-  const sizeId =
-    settings.wallpaperSizeId === "device-auto" && device !== detectedDevice
-      ? defaultSizeForDevice[device]
-      : settings.wallpaperSizeId;
-
-  if (sizeId === "device-auto") {
-    // Phones and tablets get tall wallpapers even if held sideways right now.
-    const long = Math.max(detectedDeviceSize.width, detectedDeviceSize.height);
-    const short = Math.min(detectedDeviceSize.width, detectedDeviceSize.height);
-    const portrait = device !== "Laptop";
-    return {
-      id: "device-auto",
-      group: "Device",
-      label: "This device (automatic)",
-      width: portrait ? short : long,
-      height: portrait ? long : short,
-    };
-  }
-  if (sizeId === "custom") {
-    return {
-      id: "custom",
-      group: "Custom",
-      label: "Custom size",
-      width: settings.wallpaperCustomWidth,
-      height: settings.wallpaperCustomHeight,
-    };
-  }
-  const preset = wallpaperSizePresets.find((item) => item.id === sizeId);
-  return preset ?? wallpaperSizePresets[2];
-}
-
-function getNotificationPermission(): NotificationPermission | "unsupported" {
-  if (typeof window === "undefined" || !("Notification" in window)) {
-    return "unsupported";
-  }
-  return Notification.permission;
-}
 
 export function ScheduleApp() {
   const [settings, setSettings] = useState<ScheduleSettings>(defaultSettings);
@@ -284,18 +106,18 @@ export function ScheduleApp() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
   const [privacyNoteDismissed, setPrivacyNoteDismissed] = useState(true);
-  // Keep the branded splash up briefly even on fast devices so it doesn't just flicker.
-  const [splashDone, setSplashDone] = useState(false);
-  // Unmount the splash only after its exit fade has played.
-  const [splashGone, setSplashGone] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  // A schedule someone sent via a `#share=…` link, waiting for the student to accept.
+  const [incomingShare, setIncomingShare] = useState<SharedSchedule | null>(null);
   const [canShare, setCanShare] = useState(false);
-  const [detectedDeviceSize, setDetectedDeviceSize] = useState({
+  const [detectedDeviceSize, setDetectedDeviceSize] = useState<ScreenSize>({
     width: 1080,
     height: 1920,
   });
   const [detectedDevice, setDetectedDevice] = useState<WallpaperDevice>("Phone");
 
   const holidayRefreshAttemptedRef = useRef(false);
+  const saveWarningShownRef = useRef(false);
 
   // Initialize from localStorage
   useEffect(() => {
@@ -312,15 +134,15 @@ export function ScheduleApp() {
       }
 
       try {
-        setPrivacyNoteDismissed(localStorage.getItem(privacyNoteKey) === "1");
+        setPrivacyNoteDismissed(localStorage.getItem(storageKeys.privacyNote) === "1");
+        // Dark by default to match the GetLaunchPH tools; light only if the student chose it.
+        const storedTheme = localStorage.getItem(storageKeys.theme);
+        if (storedTheme === "dark" || storedTheme === "light") {
+          setTheme(storedTheme);
+        }
       } catch {
+        // Storage blocked (private mode): show the privacy note and keep the default theme.
         setPrivacyNoteDismissed(false);
-      }
-
-      // Dark by default to match the GetLaunchPH tools; light only if the student chose it.
-      const storedTheme = window.localStorage.getItem(themeKey);
-      if (storedTheme === "dark" || storedTheme === "light") {
-        setTheme(storedTheme);
       }
 
       const current = new Date();
@@ -336,14 +158,37 @@ export function ScheduleApp() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  // Opened from a classmate's share link? Decode it and ask before touching the schedule.
+  // Also listens for hash changes: pasting a link into an already-open tab doesn't reload.
   useEffect(() => {
-    const timer = window.setTimeout(() => setSplashDone(true), SPLASH_MIN_MS);
-    return () => window.clearTimeout(timer);
+    let cancelled = false;
+    function handleShareHash() {
+      const encoded = readShareHash(window.location.hash);
+      if (!encoded) return;
+      void decodeSharedSchedule(encoded).then((shared) => {
+        if (cancelled) return;
+        clearShareHash();
+        if (shared && shared.entries.length > 0) {
+          setIncomingShare(shared);
+        } else {
+          setToast({
+            id: Date.now(),
+            text: "That share link is broken or incomplete. Ask your classmate to send it again.",
+          });
+        }
+      });
+    }
+    handleShareHash();
+    window.addEventListener("hashchange", handleShareHash);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("hashchange", handleShareHash);
+    };
   }, []);
 
   // Keep "now" fresh so the Today view's countdowns stay accurate.
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 30000);
+    const timer = window.setInterval(() => setNow(new Date()), NOW_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -361,13 +206,17 @@ export function ScheduleApp() {
     };
   }, []);
 
-  // Sync to localStorage
+  // Sync to localStorage. If the browser refuses (full / private mode), warn once.
   useEffect(() => {
     if (!storageReady) return;
-    localStorage.setItem(
-      storageKey,
-      JSON.stringify({ settings, entries, holidayCalendar }),
-    );
+    const saved = writeStoredSchedule({ settings, entries, holidayCalendar });
+    if (!saved && !saveWarningShownRef.current) {
+      saveWarningShownRef.current = true;
+      setToast({
+        id: Date.now(),
+        text: "This browser isn't saving your schedule (private mode or storage full). Save a backup.",
+      });
+    }
   }, [settings, entries, holidayCalendar, storageReady]);
 
   // Sync theme
@@ -378,8 +227,12 @@ export function ScheduleApp() {
     // Match the mobile browser / installed-app status bar to the page background.
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute("content", theme === "dark" ? "#141414" : "#f4f4f1");
-    window.localStorage.setItem(themeKey, theme);
+      ?.setAttribute("content", THEME_COLORS[theme]);
+    try {
+      localStorage.setItem(storageKeys.theme, theme);
+    } catch {
+      // Can't remember the theme; it resets to dark next visit.
+    }
   }, [theme, storageReady]);
 
   // Notification loop
@@ -387,7 +240,7 @@ export function ScheduleApp() {
     if (notificationState !== "granted") return;
     const timer = window.setInterval(() => {
       checkDueNotifications(entries, holidayCalendar);
-    }, 30000);
+    }, REMINDER_CHECK_MS);
     checkDueNotifications(entries, holidayCalendar);
     return () => window.clearInterval(timer);
   }, [entries, holidayCalendar, notificationState]);
@@ -420,7 +273,7 @@ export function ScheduleApp() {
   // Auto-dismiss toasts
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), toast.action ? 6000 : 3500);
+    const timer = window.setTimeout(() => setToast(null), toast.action ? TOAST_WITH_ACTION_MS : TOAST_MS);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
@@ -497,6 +350,14 @@ export function ScheduleApp() {
       // After adding a class, offer the next step: designing the wallpaper.
       editingId ? undefined : { label: "Design wallpaper", onClick: openWallpaperStep },
     );
+  }
+
+  function openShare() {
+    if (entries.length === 0) {
+      setMessage("Add a class first, then you can share your schedule.");
+      return;
+    }
+    setShareOpen(true);
   }
 
   function openWallpaperStep() {
@@ -617,42 +478,69 @@ export function ScheduleApp() {
   function exportBackup() {
     downloadText(
       "smartsched-backup.json",
-      JSON.stringify(
-        { settings, entries, holidayCalendar },
-        null,
-        2,
-      ),
+      serializeSchedule({ settings, entries, holidayCalendar }, true),
       "application/json",
     );
     setMessage("Backup saved to your downloads.");
   }
 
   function importBackup(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+    const input = event.target;
+    const file = input.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const parsed = JSON.parse(String(reader.result)) as RawStoredSchedule;
-        if (!Array.isArray(parsed.entries)) {
-          throw new Error("Missing entries");
+        const restored = parseScheduleData(JSON.parse(String(reader.result)));
+        if (!restored) {
+          throw new Error("Not a SmartSched backup");
         }
-        setSettings(normalizeSettings(parsed.settings));
-        setEntries(parsed.entries.map(normalizeEntry));
-        setHolidayCalendar(normalizeHolidayCalendar(parsed.holidayCalendar));
+        setSettings(restored.settings);
+        setEntries(restored.entries);
+        setHolidayCalendar(restored.holidayCalendar);
         setMessage("Backup restored on this device.");
       } catch {
         setMessage("That file isn't a valid SmartSched backup.");
       } finally {
-        event.target.value = "";
+        input.value = "";
       }
+    };
+    reader.onerror = () => {
+      setMessage("Couldn't read that file. Try saving the backup again.");
+      input.value = "";
     };
     reader.readAsText(file);
   }
 
+  /** Accepts a classmate's shared schedule, either added to or replacing the current one. */
+  function acceptIncomingShare(mode: "add" | "replace") {
+    if (!incomingShare) return;
+    const previous = entries;
+    const incoming = incomingShare.entries;
+    setEntries(mode === "replace" ? incoming : [...previous, ...incoming]);
+    setIncomingShare(null);
+    goToTab("schedule");
+    setMessage(
+      `${mode === "replace" ? "Replaced your schedule with" : "Added"} ${incoming.length} shared ${
+        incoming.length === 1 ? "class" : "classes"
+      }.`,
+      {
+        label: "Undo",
+        onClick: () => {
+          setEntries(previous);
+          setToast(null);
+        },
+      },
+    );
+  }
+
   function exportCalendar() {
-    const ics = buildIcs(settings, sortedEntries, holidayCalendar);
+    const ics = buildIcs({
+      calendarName: `${getSchoolPalette(settings.schoolPaletteId).name} Schedule`,
+      entries: sortedEntries,
+      holidayCalendar,
+    });
     downloadText("smartsched-reminders.ics", ics, "text/calendar");
     setMessage(
       holidayCalendar.enabled &&
@@ -663,32 +551,18 @@ export function ScheduleApp() {
   }
 
   async function downloadWallpaper(format = settings.wallpaperExportFormat) {
-    const canvas = document.createElement("canvas");
-    canvas.width = selectedWallpaperSize.width;
-    canvas.height = selectedWallpaperSize.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const blob = await renderWallpaperBlob(settings, sortedEntries, selectedWallpaperSize, format);
+    if (!blob) {
+      setMessage("Couldn't create the wallpaper on this browser. Try a smaller size.");
+      return;
+    }
 
-    drawWallpaper(ctx, canvas.width, canvas.height, settings, sortedEntries);
-
-    const mimeType = format === "JPG" ? "image/jpeg" : "image/png";
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, mimeType, format === "JPG" ? 0.92 : 1),
-    );
-    if (!blob) return;
-
-    const sizeLabel = formatWallpaperSize(
-      selectedWallpaperSize.width,
-      selectedWallpaperSize.height,
-    );
+    const { id, width, height } = selectedWallpaperSize;
     const layoutSlug = settings.wallpaperLayoutMode.toLowerCase();
-    const extension = format.toLowerCase() === "jpg" ? "jpg" : "png";
-    downloadBlob(
-      `smartsched-wallpaper-${selectedWallpaperSize.id}-${selectedWallpaperSize.width}x${selectedWallpaperSize.height}-${layoutSlug}.${extension}`,
-      blob,
-    );
+    const extension = format === "JPG" ? "jpg" : "png";
+    downloadBlob(`smartsched-wallpaper-${id}-${width}x${height}-${layoutSlug}.${extension}`, blob);
     // Last step of the flow: reminders, so students don't miss class.
-    setMessage(`Wallpaper downloaded (${sizeLabel} ${format}).`, {
+    setMessage(`Wallpaper downloaded (${formatWallpaperSize(width, height)} ${format}).`, {
       label: "Set reminders",
       onClick: () => {
         setToast(null);
@@ -703,22 +577,12 @@ export function ScheduleApp() {
       await downloadWallpaper();
       return;
     }
-    const canvas = document.createElement("canvas");
-    canvas.width = selectedWallpaperSize.width;
-    canvas.height = selectedWallpaperSize.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    drawWallpaper(ctx, canvas.width, canvas.height, settings, sortedEntries);
-
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/png"),
-    );
-    if (!blob) return;
-
-    const file = new File([blob], "smartsched-schedule-wallpaper.png", {
-      type: "image/png",
-    });
+    const blob = await renderWallpaperBlob(settings, sortedEntries, selectedWallpaperSize, "PNG");
+    if (!blob) {
+      setMessage("Couldn't create the wallpaper on this browser. Try a smaller size.");
+      return;
+    }
+    const file = new File([blob], "smartsched-schedule-wallpaper.png", { type: "image/png" });
 
     try {
       await navigator.share({
@@ -735,18 +599,7 @@ export function ScheduleApp() {
 
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-background text-foreground">
-      {splashGone ? null : (
-        <div
-          className={now && splashDone ? "lm-splash-exit" : undefined}
-          aria-hidden={now && splashDone ? true : undefined}
-          onAnimationEnd={(event) => {
-            // Splash child animations bubble here too — only react to the wrapper's own fade.
-            if (event.target === event.currentTarget) setSplashGone(true);
-          }}
-        >
-          <SplashScreen />
-        </div>
-      )}
+      <SplashGate isAppReady={now !== null} />
 
       {/* App bar */}
       <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 pt-[env(safe-area-inset-top)] backdrop-blur-lg">
@@ -760,24 +613,7 @@ export function ScheduleApp() {
             <BrandLockup />
           </button>
 
-          <nav className="hidden items-center gap-1 rounded-2xl border border-border bg-surface p-1 md:flex" aria-label="Main">
-            {tabs.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                type="button"
-                aria-current={tab === id ? "page" : undefined}
-                onClick={() => goToTab(id)}
-                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                  tab === id
-                    ? "bg-primary-fill text-white shadow-[var(--shadow-sm)]"
-                    : "text-muted hover:bg-surface-2 hover:text-foreground"
-                }`}
-              >
-                <Icon aria-hidden="true" className="size-4" />
-                {label}
-              </button>
-            ))}
-          </nav>
+          <DesktopTabs activeTab={tab} onSelect={(next) => goToTab(next)} />
 
           <div className="flex shrink-0 items-center gap-2">
             <button
@@ -792,12 +628,13 @@ export function ScheduleApp() {
                 <MoonStar aria-hidden="true" className="size-5" />
               )}
             </button>
+            <ShareButton onClick={openShare} />
             <SupportButton onClick={() => setSupportOpen(true)} />
           </div>
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl px-4 pb-36 pt-5 sm:px-6 sm:pt-8 md:pb-16">
+      <main className="mx-auto w-full max-w-6xl px-4 pb-56 pt-5 sm:px-6 sm:pt-8 md:pb-24">
         {!now ? null : (
           <div key={tab} className="animate-fade-up">
             {tab === "today" ? (
@@ -807,7 +644,7 @@ export function ScheduleApp() {
                     onDismiss={() => {
                       setPrivacyNoteDismissed(true);
                       try {
-                        localStorage.setItem(privacyNoteKey, "1");
+                        localStorage.setItem(storageKeys.privacyNote, "1");
                       } catch {
                         // Can't remember the dismissal; the note just shows again next visit.
                       }
@@ -845,8 +682,6 @@ export function ScheduleApp() {
               />
             ) : (
               <MoreView
-                settings={settings}
-                setSettings={setSettings}
                 theme={theme}
                 onThemeChange={setTheme}
                 notificationState={notificationState}
@@ -866,7 +701,6 @@ export function ScheduleApp() {
                 onImportBackup={importBackup}
                 onClearAll={clearAllEntries}
                 entryCount={entries.length}
-                onOpenFeedback={() => setFeedbackOpen(true)}
                 onMessage={setMessage}
               />
             )}
@@ -886,66 +720,11 @@ export function ScheduleApp() {
         </button>
       ) : null}
 
-      {/* Bottom tab bar (phones and small tablets) */}
-      <nav
-        className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/90 backdrop-blur-lg md:hidden"
-        aria-label="Main"
-      >
-        <div className="mx-auto grid max-w-sm grid-cols-3 px-2 pt-1.5">
-          {tabs.map(({ id, label, icon: Icon }) => {
-            const active = tab === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                aria-current={active ? "page" : undefined}
-                onClick={() => goToTab(id)}
-                className={`flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-xl py-1 text-[11px] font-semibold transition active:scale-95 ${
-                  active ? "text-primary" : "text-muted"
-                }`}
-              >
-                <span
-                  className={`relative flex h-8 w-14 items-center justify-center rounded-full transition ${
-                    active ? "bg-primary/15" : ""
-                  }`}
-                >
-                  <Icon aria-hidden="true" className="size-5" strokeWidth={active ? 2.4 : 2} />
-                </span>
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      </nav>
+      <FeedbackBubble onClick={() => setFeedbackOpen(true)} isAboveFab={showFab} />
 
-      {/* Toast */}
-      {toast ? (
-        <div
-          className={`pointer-events-none fixed inset-x-0 z-[60] flex justify-center px-4 md:bottom-6 ${
-            // Sit above the add-class button on phones so the two never overlap.
-            showFab
-              ? "bottom-[calc(152px+env(safe-area-inset-bottom))]"
-              : "bottom-[calc(84px+env(safe-area-inset-bottom))]"
-          }`}
-        >
-          <div
-            key={toast.id}
-            role="status"
-            className="animate-fade-up pointer-events-auto flex max-w-md items-center gap-3 rounded-2xl bg-foreground px-4 py-3 text-sm font-medium text-background shadow-[var(--shadow-lg)]"
-          >
-            <span className="min-w-0">{toast.text}</span>
-            {toast.action ? (
-              <button
-                type="button"
-                className="shrink-0 rounded-lg px-2 py-1 font-bold text-background underline-offset-2 hover:underline"
-                onClick={toast.action.onClick}
-              >
-                {toast.action.label}
-              </button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+      <BottomTabBar activeTab={tab} onSelect={(next) => goToTab(next)} />
+
+      {toast ? <AppToast toast={toast} isAboveFab={showFab} /> : null}
 
       {formState ? (
         <EntryFormSheet
@@ -980,6 +759,28 @@ export function ScheduleApp() {
 
       {supportOpen ? <SupportSheet onClose={() => setSupportOpen(false)} /> : null}
 
+      {shareOpen ? (
+        <ShareScheduleSheet
+          entries={sortedEntries}
+          title={settings.wallpaperTitle || "Class Schedule"}
+          schoolPaletteId={settings.schoolPaletteId}
+          canShare={canShare}
+          onMessage={setMessage}
+          onClose={() => setShareOpen(false)}
+        />
+      ) : null}
+
+      {/* Wait for local data to load so "Add" vs "Replace" reflects the real schedule. */}
+      {incomingShare && storageReady ? (
+        <ImportSharedSheet
+          shared={incomingShare}
+          existingCount={entries.length}
+          onAdd={() => acceptIncomingShare("add")}
+          onReplace={() => acceptIncomingShare("replace")}
+          onClose={() => setIncomingShare(null)}
+        />
+      ) : null}
+
       {feedbackOpen ? (
         <FeedbackWidget
           schoolPaletteId={settings.schoolPaletteId}
@@ -992,192 +793,4 @@ export function ScheduleApp() {
       ) : null}
     </div>
   );
-}
-
-// ICS Calendar & Notification Utilities
-function readNotifiedKeys(): Set<string> {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(notifiedKey) || "[]");
-    return new Set(
-      Array.isArray(parsed) ? parsed.filter((key): key is string => typeof key === "string") : [],
-    );
-  } catch {
-    return new Set();
-  }
-}
-
-function saveNotifiedKeys(keys: Set<string>) {
-  try {
-    localStorage.setItem(notifiedKey, JSON.stringify([...keys].slice(-100)));
-  } catch {
-    // Storage full or blocked: worst case a reminder may show twice.
-  }
-}
-
-/**
- * Shows a reminder without ever throwing. Android Chrome rejects `new Notification()`
- * ("Illegal constructor") and only allows notifications through the service worker,
- * so prefer `registration.showNotification` and fall back to the constructor
- * (desktop browsers, or dev mode where no service worker is registered).
- */
-async function showReminder(title: string, options: NotificationOptions) {
-  try {
-    const registration =
-      "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
-    if (registration) {
-      await registration.showNotification(title, options);
-      return;
-    }
-    new Notification(title, options);
-  } catch {
-    // Notifications unsupported in this context; the .ics calendar alarms remain the backup.
-  }
-}
-
-function checkDueNotifications(
-  entries: ScheduleEntry[],
-  holidayCalendar: HolidayCalendar,
-) {
-  if (!("Notification" in window) || Notification.permission !== "granted") {
-    return;
-  }
-
-  const now = new Date();
-  if (holidayForDate(holidayCalendar, now)) {
-    return;
-  }
-
-  const today = dayNameForDate(now);
-  const notified = readNotifiedKeys();
-  let changed = false;
-
-  entries
-    .filter((entry) => entry.days.includes(today))
-    .forEach((entry) => {
-      const [hour, minute] = entry.start.split(":").map(Number);
-      const reminder = new Date(now);
-      reminder.setHours(hour, minute - entry.reminderMinutes, 0, 0);
-      const diff = reminder.getTime() - now.getTime();
-      const key = `${now.toDateString()}-${entry.id}-${entry.reminderMinutes}`;
-
-      if (diff <= 30000 && diff >= -60000 && !notified.has(key)) {
-        // Record first so a failed display can't make the reminder repeat every 30s.
-        notified.add(key);
-        changed = true;
-        void showReminder(`${entry.title} starts at ${formatTime(entry.start)}`, {
-          body: [entry.code, entry.room].filter(Boolean).join(" - "),
-          icon: "/icon.svg",
-          tag: key,
-        });
-      }
-    });
-
-  if (changed) {
-    saveNotifiedKeys(notified);
-  }
-}
-
-function buildIcs(
-  settings: ScheduleSettings,
-  entries: ScheduleEntry[],
-  holidayCalendar: HolidayCalendar,
-) {
-  const nowStamp = toIcsDate(new Date());
-  const lines = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//SmartSched Local//Schedule Reminders//EN",
-    "CALSCALE:GREGORIAN",
-    "METHOD:PUBLISH",
-    `X-WR-CALNAME:${escapeIcs(`${getSchoolPalette(settings.schoolPaletteId).name} Schedule`)}`,
-  ];
-
-  entries.forEach((entry) => {
-    entry.days.forEach((day) => {
-      const startDate = nextDateForDay(day);
-      const [startHour, startMinute] = entry.start.split(":").map(Number);
-      const [endHour, endMinute] = entry.end.split(":").map(Number);
-      startDate.setHours(startHour, startMinute, 0, 0);
-      const endDate = new Date(startDate);
-      endDate.setHours(endHour, endMinute, 0, 0);
-      const holidayExclusions = getHolidayExclusions(
-        startDate,
-        holidayCalendar,
-        24,
-      );
-
-      lines.push(
-        "BEGIN:VEVENT",
-        `UID:${entry.id}-${day}@smartsched.local`,
-        `DTSTAMP:${nowStamp}`,
-        `DTSTART:${toIcsDate(startDate)}`,
-        `DTEND:${toIcsDate(endDate)}`,
-        "RRULE:FREQ=WEEKLY;COUNT=24",
-        ...(holidayExclusions.length > 0
-          ? [`EXDATE:${holidayExclusions.map(toIcsDate).join(",")}`]
-          : []),
-        `SUMMARY:${escapeIcs([entry.code, entry.title].filter(Boolean).join(" "))}`,
-        `LOCATION:${escapeIcs(entry.room)}`,
-        `DESCRIPTION:${escapeIcs(day)}`,
-        "BEGIN:VALARM",
-        `TRIGGER:-PT${Math.max(0, entry.reminderMinutes)}M`,
-        "ACTION:DISPLAY",
-        `DESCRIPTION:${escapeIcs(`${entry.title} starts soon`)}`,
-        "END:VALARM",
-        "END:VEVENT",
-      );
-    });
-  });
-
-  lines.push("END:VCALENDAR");
-  return `${lines.join("\r\n")}\r\n`;
-}
-
-function getHolidayExclusions(
-  firstOccurrence: Date,
-  holidayCalendar: HolidayCalendar,
-  occurrenceCount: number,
-) {
-  if (!holidayCalendar.enabled) {
-    return [];
-  }
-
-  const exclusions: Date[] = [];
-  for (let index = 0; index < occurrenceCount; index += 1) {
-    const occurrence = new Date(firstOccurrence);
-    occurrence.setDate(firstOccurrence.getDate() + index * 7);
-    if (holidayForDate(holidayCalendar, occurrence)) {
-      exclusions.push(occurrence);
-    }
-  }
-
-  return exclusions;
-}
-
-function toIcsDate(date: Date) {
-  return date
-    .toISOString()
-    .replace(/[-:]/g, "")
-    .replace(/\.\d{3}/, "");
-}
-
-function escapeIcs(value: string) {
-  return value
-    .replace(/\\/g, "\\\\")
-    .replace(/\n/g, "\\n")
-    .replace(/,/g, "\\,")
-    .replace(/;/g, "\\;");
-}
-
-function downloadText(filename: string, text: string, type: string) {
-  downloadBlob(filename, new Blob([text], { type }));
-}
-
-function downloadBlob(filename: string, blob: Blob) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
 }

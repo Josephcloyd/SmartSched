@@ -1,7 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { PwaRegister } from "@/components/pwa-register";
-import { brand } from "@/lib/brand";
+import { PrivacyAnalytics } from "@/components/privacy-analytics";
+import { splashSeenScript } from "@/lib/splash";
+import { brand, brandColors } from "@/lib/brand";
+import { seoDescription, seoKeywords, seoTitle } from "@/lib/seo";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -15,9 +18,37 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: `${brand.appName} by ${brand.company}`,
-  description: `${brand.tagline}. Free, no sign-up, and your schedule never leaves your device.`,
+  // Lets the opengraph-image / apple-icon files resolve to absolute URLs in link previews.
+  metadataBase: new URL(brand.siteUrl),
+  title: seoTitle,
+  description: seoDescription,
+  keywords: seoKeywords,
   applicationName: brand.appName,
+  authors: [{ name: brand.company, url: brand.siteUrl }],
+  creator: brand.company,
+  publisher: brand.company,
+  category: "education",
+  alternates: { canonical: "/" },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1 },
+  },
+  // Stops iOS turning class codes/rooms that look like numbers into phone links.
+  formatDetection: { telephone: false, address: false, email: false },
+  openGraph: {
+    type: "website",
+    url: "/",
+    siteName: brand.appName,
+    title: seoTitle,
+    description: seoDescription,
+    locale: "en_PH",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: seoTitle,
+    description: seoDescription,
+  },
   appleWebApp: {
     capable: true,
     title: brand.appName,
@@ -26,7 +57,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#141414",
+  // In-app status bar matches the dark app header; the manifest uses the splash green for launch.
+  themeColor: brandColors.appDark,
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -46,9 +78,14 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
       suppressHydrationWarning
     >
+      <head>
+        {/* Static, no user data: marks returning visitors before paint so the splash skips its intro. */}
+        <script dangerouslySetInnerHTML={{ __html: splashSeenScript }} />
+      </head>
       <body className="min-h-full flex flex-col">
         {children}
         <PwaRegister />
+        <PrivacyAnalytics />
       </body>
     </html>
   );

@@ -9,7 +9,6 @@ import {
   FileDown,
   ImageDown,
   MapPin,
-  MessageCircle,
   MoonStar,
   Palmtree,
   Plus,
@@ -24,12 +23,10 @@ import type {
   CustomBreak,
   HolidayCalendar,
   PublicHoliday,
-  ScheduleSettings,
 } from "@/lib/types";
 import { popularCountries } from "@/lib/holidays";
 import { uid } from "@/lib/utils";
 import { Field, Panel, ToggleControl } from "@/components/ui/form-controls";
-import { SchoolPalettePicker } from "@/components/wallpaper/wallpaper-modal";
 import { privacyPoints } from "@/components/brand/privacy-notice";
 
 function formatShortDate(dateKey: string) {
@@ -43,8 +40,6 @@ function formatShortDate(dateKey: string) {
 }
 
 export function MoreView({
-  settings,
-  setSettings,
   theme,
   onThemeChange,
   notificationState,
@@ -64,11 +59,8 @@ export function MoreView({
   onImportBackup,
   onClearAll,
   entryCount,
-  onOpenFeedback,
   onMessage,
 }: {
-  settings: ScheduleSettings;
-  setSettings: (updater: (current: ScheduleSettings) => ScheduleSettings) => void;
   theme: "light" | "dark";
   onThemeChange: (theme: "light" | "dark") => void;
   notificationState: NotificationPermission | "unsupported";
@@ -88,7 +80,6 @@ export function MoreView({
   onImportBackup: (event: ChangeEvent<HTMLInputElement>) => void;
   onClearAll: () => void;
   entryCount: number;
-  onOpenFeedback: () => void;
   onMessage: (text: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -104,20 +95,10 @@ export function MoreView({
         <div className="grid gap-4">
           <Panel
             title="Lock-screen wallpaper"
-            description="Turn your schedule into a phone or desktop wallpaper."
+            description="Turn your schedule into a phone or desktop wallpaper in your school's colors."
             icon={<Smartphone aria-hidden="true" className="size-5" />}
           >
             <div className="grid gap-4">
-              <SchoolPalettePicker
-                selectedId={settings.schoolPaletteId}
-                onChange={(palette) =>
-                  setSettings((current) => ({
-                    ...current,
-                    schoolPaletteId: palette.id,
-                    wallpaperStyle: "School Palette",
-                  }))
-                }
-              />
               <div className="grid gap-2">
                 <button type="button" className="primary-button" onClick={onOpenWallpaper}>
                   <ImageDown aria-hidden="true" className="size-4" />
@@ -263,20 +244,6 @@ export function MoreView({
               and school breaks.
             </p>
           </Panel>
-
-          <button
-            type="button"
-            className="neo-card flex items-center gap-3 px-4 py-4 text-left transition hover:border-primary/40"
-            onClick={onOpenFeedback}
-          >
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <MessageCircle aria-hidden="true" className="size-5" />
-            </span>
-            <span className="min-w-0">
-              <span className="block font-semibold text-foreground">Report a problem or suggest an idea</span>
-              <span className="block text-sm text-muted">Missing your school? Let us know.</span>
-            </span>
-          </button>
         </div>
       </div>
     </div>

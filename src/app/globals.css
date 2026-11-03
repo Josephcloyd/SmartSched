@@ -568,9 +568,19 @@
 @keyframes lm-letter       { from { opacity:0; transform:translateY(.5em); } }
 @keyframes lm-shimmer      { to { background-position:-160% 0; } }
 
+/* Returning visitors (html.splash-seen, set before paint): finished logo, no intro.
+   The orbit keeps spinning so it still reads as "loading". */
+.splash-seen .lm-screen *:not(.lm-orbit-arc),
+.splash-seen .lm-screen *::before,
+.splash-seen .lm-screen *::after { animation: none !important; }
+.splash-seen .lm-caption { color: #a9bdb3; background: none; }
+
 /* Reduced-motion: show finished logo instantly, no distractions */
 @media (prefers-reduced-motion: reduce) {
   .lm-screen *, .lm-screen *::before, .lm-screen *::after { animation: none !important; }
   .lm-orbit-arc { display: none; }
   .lm-caption   { color: #a9bdb3; background: none; }
+  /* Keep a short plain fade (no scale) so the splash still unmounts via animationend */
+  .lm-splash-exit { animation: lm-fade-out .15s linear both; }
 }
+@keyframes lm-fade-out { to { opacity: 0; } }

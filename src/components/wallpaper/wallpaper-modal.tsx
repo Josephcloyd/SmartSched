@@ -231,6 +231,17 @@ export function WallpaperControls({
           }
         />
       </Field>
+      <SchoolPalettePicker
+        selectedId={settings.schoolPaletteId}
+        onChange={(palette) =>
+          // Picking a school switches the design to its colors so the change shows right away.
+          setSettings((current) => ({
+            ...current,
+            schoolPaletteId: palette.id,
+            wallpaperStyle: "School Palette",
+          }))
+        }
+      />
       <WallpaperTemplatePicker
         value={settings.wallpaperStyle}
         schoolPaletteId={settings.schoolPaletteId}

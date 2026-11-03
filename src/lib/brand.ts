@@ -6,6 +6,13 @@ export const brand = {
   nameAccent: "Sched",
   company: "GetLaunchPH",
   tagline: "Free class schedule planner and wallpaper maker",
+  siteUrl: "https://smartschedule.getlaunchph.com",
+} as const;
+
+/** Brand colours used outside CSS (manifest, browser chrome). Keep in sync with `.lm-screen` in globals.css. */
+export const brandColors = {
+  splash: "#344c43",
+  appDark: "#141414",
 } as const;
 
 /** GCash donation details, shared with ResumeFlow (same official QR). */

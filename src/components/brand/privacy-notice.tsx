@@ -6,6 +6,8 @@ export const privacyPoints = [
   "No account or sign-up. We never ask who you are.",
   "Your classes and settings are saved only in this browser on this device. Nothing is uploaded to or stored on our servers.",
   "Wallpapers and calendar files are made right on your device.",
+  "Share links carry your schedule inside the link itself. It goes straight to the classmate you send it to, never through our servers.",
+  "We count anonymous visits (no cookies, nothing you type) to see how many students use SmartSched.",
   "The holiday lookup only sends your country to a public holiday service, plus your approximate location if you tap Detect.",
   "Clearing your browser data erases your schedule, so save a backup if you switch phones.",
 ];

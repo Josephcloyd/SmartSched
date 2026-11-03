@@ -11,4 +11,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Keep wallpaper exports readable on small portrait sizes. Prefer vertically stacked schedule cards for phone wallpapers instead of squeezing multiple cards side-by-side.
 - Saturday and Sunday should remain available in the scheduler, but empty weekend days should not appear in wallpaper exports or wallpaper previews.
 - When changing cached PWA behavior or generated app shell assets, bump `CACHE_NAME` in `public/sw.js` so browsers do not keep stale bundles.
-- Run `npm run typecheck`, `npm run lint`, and `npm run build` before handing off UI/export changes.
+- Run `npm test`, `npm run typecheck`, `npm run lint`, and `npm run build` before handing off UI/export changes.
+- Schedule data from storage, backups and share links is untrusted: always pass it through `normalizeEntry` / `parseScheduleData` in `src/lib/schedule-storage.ts`.
+- Share links keep the schedule in the URL `#` fragment so it never reaches a server; analytics strips query and hash (`src/components/privacy-analytics.tsx`). Keep it that way.
+- The CSP lives in `next.config.ts`. Any new external API must be added to `connect-src` or the browser will block it.
